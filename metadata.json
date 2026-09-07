@@ -1,0 +1,6 @@
+{
+  "name": "Payment Collection & Client Management Dashboard",
+  "description": "Role-based payment collection tracking and client management dashboard for team members and managers with financial KPIs, forecasts, and status toggles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

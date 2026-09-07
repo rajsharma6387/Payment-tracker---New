@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Represents an authenticated user (Manager or Team Member) with their role and targets.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auth UID of the user." },
+        "name": { "type": "string", "description": "Full name of the team member or manager." },
+        "email": { "type": "string", "format": "email", "description": "Email address." },
+        "role": { "type": "string", "enum": ["manager", "team_member"], "description": "RBAC user role." },
+        "avatar": { "type": "string", "description": "Avatar URL." },
+        "department": { "type": "string", "description": "Department or portfolio." },
+        "targetMonthlyCollection": { "type": "number", "description": "Monthly recovery quota/target." }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "CustomerPaymentRecord": {
+      "title": "Customer Payment Record",
+      "description": "Collection ledger record per customer contract or outstanding invoice.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique record identifier." },
+        "customerName": { "type": "string", "description": "Company or client legal name." },
+        "category": { "type": "string", "enum": ["AMC", "Solution", "Outstanding"], "description": "Contract billing category." },
+        "totalAmount": { "type": "number", "description": "Total payment amount billed." },
+        "expectedDate": { "type": "string", "format": "date", "description": "Expected payment date (YYYY-MM-DD)." },
+        "receiptReceived": { "type": "boolean", "description": "True if receipt/payment confirmed received." },
+        "receivedAmount": { "type": "number", "description": "Amount received to date." },
+        "balanceAmount": { "type": "number", "description": "Calculated pending balance (total - received)." },
+        "remarks": { "type": "string", "description": "Notes, recovery status, call logs." },
+        "assignedMemberId": { "type": "string", "description": "Assigned team member user UID." },
+        "assignedMemberName": { "type": "string", "description": "Display name of assigned team member." },
+        "clientContact": { "type": "string", "description": "Contact phone number." },
+        "clientEmail": { "type": "string", "format": "email", "description": "Client email address." },
+        "lastFollowupDate": { "type": "string", "format": "date", "description": "Latest contact timestamp." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Record creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Record last update timestamp." }
+      },
+      "required": ["customerName", "category", "totalAmount", "expectedDate", "receiptReceived", "assignedMemberId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents keyed by Firebase Auth UID."
+    },
+    "/customers/{customerId}": {
+      "schema": "CustomerPaymentRecord",
+      "description": "Customer collection records with RBAC access control."
+    }
+  }
+}
