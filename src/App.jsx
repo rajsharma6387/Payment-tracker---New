@@ -145,6 +145,9 @@ export default function App() {
   // AUTHENTICATION & INITIALIZATION
   // ============================================================================
   useEffect(() => {
+    // Clear any obsolete demo bypass entries from previous sessions
+    localStorage.removeItem('fincollect_active_user');
+
     const checkInitialSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -152,19 +155,13 @@ export default function App() {
           setSessionUser(session.user);
           await fetchProfile(session.user.id, session.user.email || '');
         } else {
-          const savedDemo = localStorage.getItem('fincollect_active_user');
-          if (savedDemo) {
-            try {
-              const parsed = JSON.parse(savedDemo);
-              setUserProfile(parsed);
-              setSessionUser({ id: parsed.id, email: parsed.email });
-            } catch {
-              // fallback
-            }
-          }
+          setSessionUser(null);
+          setUserProfile(null);
         }
       } catch (err) {
         console.warn('Session check warning:', err);
+        setSessionUser(null);
+        setUserProfile(null);
       } finally {
         setLoadingSession(false);
       }
@@ -176,7 +173,7 @@ export default function App() {
       if (session?.user) {
         setSessionUser(session.user);
         await fetchProfile(session.user.id, session.user.email || '');
-      } else if (isLiveSupabase) {
+      } else {
         setSessionUser(null);
         setUserProfile(null);
       }
@@ -262,14 +259,6 @@ export default function App() {
     } finally {
       setAuthLoading(false);
     }
-  };
-
-  const handleQuickDemoLogin = (profile) => {
-    localStorage.setItem('fincollect_active_user', JSON.stringify(profile));
-    setUserProfile(profile);
-    setSessionUser({ id: profile.id, email: profile.email });
-    setIsLiveSupabase(false);
-    showToast(`Logged in as ${profile.role.toUpperCase()} (${profile.email})`, 'info');
   };
 
   const handleLogout = async () => {
@@ -883,50 +872,6 @@ export default function App() {
                 )}
               </button>
             </form>
-
-            <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800">
-              <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider text-center mb-3">
-                1-Click Instant Preview (Demo Bypass)
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin(DEMO_PROFILES[0])}
-                  className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
-                    theme === 'dark'
-                      ? 'bg-purple-950/40 border-purple-800/60 hover:bg-purple-900/60'
-                      : 'bg-purple-50 border-purple-300 hover:bg-purple-100'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-purple-900 dark:text-purple-300 flex items-center space-x-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Manager View</span>
-                  </div>
-                  <p className="text-[10px] text-slate-600 dark:text-slate-400 truncate mt-0.5 font-medium">
-                    Full company scope
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin(DEMO_PROFILES[1])}
-                  className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
-                    theme === 'dark'
-                      ? 'bg-emerald-950/40 border-emerald-800/60 hover:bg-emerald-900/60'
-                      : 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-emerald-900 dark:text-emerald-300 flex items-center space-x-1.5">
-                    <User className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Team View</span>
-                  </div>
-                  <p className="text-[10px] text-slate-600 dark:text-slate-400 truncate mt-0.5 font-medium">
-                    Rajesh's clients only
-                  </p>
-                </button>
-              </div>
-            </div>
-
           </div>
         </div>
       </div>
@@ -1178,27 +1123,24 @@ export default function App() {
                 <span>Password</span>
               </button>
 
-              {/* User Pill */}
+              {/* Authenticated User Pill with Static Role */}
               <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
                 theme === 'dark' ? 'bg-slate-800/90 border-slate-700 text-slate-100' : 'bg-slate-100 border-slate-300 text-slate-900'
               }`}>
-                <User className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span className="max-w-[120px] truncate">{userProfile.email}</span>
+                {isManager ? (
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                ) : (
+                  <User className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                )}
+                <span className="max-w-[130px] truncate">{userProfile.email}</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                  isManager
+                    ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
+                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                }`}>
+                  {isManager ? 'Manager' : 'Team'}
+                </span>
               </div>
-
-              {/* Demo Role Switch Shortcut */}
-              <button
-                onClick={() => {
-                  const target = isManager ? DEMO_PROFILES[1] : DEMO_PROFILES[0];
-                  handleQuickDemoLogin(target);
-                }}
-                className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-colors hidden lg:block cursor-pointer ${
-                  theme === 'dark' ? 'border-slate-700 hover:bg-slate-800 text-slate-200' : 'border-slate-300 hover:bg-slate-100 text-slate-800 shadow-xs'
-                }`}
-                title="Switch demo role to verify RBAC rules instantly"
-              >
-                Switch to {isManager ? 'Team' : 'Manager'}
-              </button>
 
               {/* Logout Button */}
               <button
