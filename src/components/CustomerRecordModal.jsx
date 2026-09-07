@@ -12,7 +12,7 @@ import {
   ThumbsUp,
   Sparkles
 } from 'lucide-react';
-import { CATEGORIES, formatCurrency } from '../constants';
+import { CATEGORIES, formatCurrency, getDisplayName } from '../constants';
 
 export default function CustomerRecordModal({
   isOpen,
@@ -355,7 +355,7 @@ export default function CustomerRecordModal({
               >
                 {teamProfiles.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.email} {p.role === 'manager' ? '(Manager)' : ''}
+                    {getDisplayName(p)} ({p.email}) {p.role === 'manager' ? '• Manager' : ''}
                   </option>
                 ))}
               </select>

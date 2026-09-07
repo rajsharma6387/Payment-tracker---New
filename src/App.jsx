@@ -36,7 +36,8 @@ import {
   PartyPopper,
   ExternalLink,
   MessageSquare,
-  CalendarCheck
+  CalendarCheck,
+  UserCheck
 } from 'lucide-react';
 
 import {
@@ -45,6 +46,8 @@ import {
   INITIAL_CUSTOMERS,
   formatCurrency,
   getCategoryBadgeStyle,
+  formatEmailPrefix,
+  getDisplayName,
 } from './constants';
 
 import TeamChatModal from './components/TeamChatModal';
@@ -76,6 +79,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [authFullName, setAuthFullName] = useState('');
   const [authRole, setAuthRole] = useState('team'); // 'team' | 'manager'
   const [authError, setAuthError] = useState(null);
 
@@ -97,6 +101,8 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editCustomer, setEditCustomer] = useState(null);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -200,18 +206,19 @@ export default function App() {
           id: userId,
           email: email,
           role: 'team', // All self-registered users are assigned 'team' by default
+          full_name: null,
         };
         const { error: insertErr } = await supabase.from('profiles').insert(newProfile);
         if (!insertErr) {
           setUserProfile(newProfile);
           setIsLiveSupabase(true);
         } else {
-          setUserProfile({ id: userId, email, role: 'team' });
+          setUserProfile({ id: userId, email, role: 'team', full_name: null });
         }
       }
     } catch (err) {
       console.warn('Profile lookup note:', err);
-      setUserProfile({ id: userId, email, role: 'team' });
+      setUserProfile({ id: userId, email, role: 'team', full_name: null });
     }
   };
 
@@ -245,6 +252,7 @@ export default function App() {
             id: data.user.id,
             email: authEmail,
             role: 'team', // Enforced default: Team Member only
+            full_name: authFullName.trim() || null,
           };
           await supabase.from('profiles').upsert(profileEntry);
           setSessionUser(data.user);
@@ -258,6 +266,55 @@ export default function App() {
       showToast(err.message || 'Authentication error', 'error');
     } finally {
       setAuthLoading(false);
+    }
+  };
+
+  const handleUpdateProfile = async (newFullName) => {
+    if (!userProfile) return;
+    setProfileSaving(true);
+    const trimmed = (newFullName || '').trim();
+
+    try {
+      if (isLiveSupabase) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ full_name: trimmed || null })
+          .eq('id', userProfile.id);
+
+        if (error) throw error;
+      }
+
+      const updatedProfile = {
+        ...userProfile,
+        full_name: trimmed || null,
+      };
+
+      setUserProfile(updatedProfile);
+      setTeamProfiles((prev) =>
+        prev.map((p) => (p.id === userProfile.id ? { ...p, full_name: trimmed || null } : p))
+      );
+
+      // Re-track presence so active colleagues see updated display name
+      const channel = supabase.channel('online-users');
+      try {
+        await channel.track({
+          id: updatedProfile.id,
+          email: updatedProfile.email,
+          role: updatedProfile.role,
+          full_name: updatedProfile.full_name || null,
+          online_at: new Date().toISOString(),
+        });
+      } catch {
+        // ignore
+      }
+
+      setIsProfileModalOpen(false);
+      showToast('Profile display name updated successfully in Supabase!', 'success');
+    } catch (err) {
+      console.error('Update profile error:', err);
+      showToast(err.message || 'Failed to update profile.', 'error');
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -383,6 +440,7 @@ export default function App() {
               id: userProfile.id,
               email: userProfile.email,
               role: userProfile.role,
+              full_name: userProfile.full_name || null,
               online_at: new Date().toISOString(),
             });
           } catch (trackErr) {
@@ -399,7 +457,7 @@ export default function App() {
         // ignore
       }
     };
-  }, [userProfile?.id, userProfile?.email, userProfile?.role]);
+  }, [userProfile?.id, userProfile?.email, userProfile?.role, userProfile?.full_name]);
 
   const effectiveOnlineUsers = useMemo(() => {
     const list = [...onlineUsers];
@@ -410,6 +468,7 @@ export default function App() {
           id: userProfile.id,
           email: userProfile.email,
           role: userProfile.role,
+          full_name: userProfile.full_name || null,
           online_at: new Date().toISOString(),
         });
       }
@@ -616,6 +675,12 @@ export default function App() {
 
   const recoveryPercent = totalExpected > 0 ? Math.round((totalReceived / totalExpected) * 100) : 0;
 
+  const getRepDisplayName = (assignedId) => {
+    const p = teamProfiles.find((t) => t.id === assignedId);
+    if (p) return getDisplayName(p);
+    return assignedId ? assignedId.slice(0, 8) + '...' : 'Unassigned';
+  };
+
   const getRepEmail = (assignedId) => {
     const p = teamProfiles.find((t) => t.id === assignedId);
     return p?.email || (assignedId ? assignedId.slice(0, 8) + '...' : 'Unassigned');
@@ -628,6 +693,7 @@ export default function App() {
     teamProfiles.forEach((p) => {
       repMap.set(p.id, {
         email: p.email,
+        full_name: p.full_name || null,
         role: p.role,
         expected: 0,
         received: 0,
@@ -637,8 +703,10 @@ export default function App() {
 
     customers.forEach((c) => {
       if (c.assigned_to && !repMap.has(c.assigned_to)) {
+        const found = teamProfiles.find((t) => t.id === c.assigned_to);
         repMap.set(c.assigned_to, {
           email: getRepEmail(c.assigned_to),
+          full_name: found?.full_name || null,
           role: 'team',
           expected: 0,
           received: 0,
@@ -659,6 +727,7 @@ export default function App() {
     return Array.from(repMap.entries()).map(([id, data]) => ({
       id,
       email: data.email,
+      full_name: data.full_name,
       role: data.role,
       count: data.count,
       expected: data.expected,
@@ -808,6 +877,28 @@ export default function App() {
                   />
                 </div>
               </div>
+
+              {authMode === 'signup' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                    Full Name (Optional)
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={authFullName}
+                      onChange={(e) => setAuthFullName(e.target.value)}
+                      placeholder="e.g. Rajesh Sharma"
+                      className={`w-full pl-9 pr-3 py-2.5 rounded-xl text-xs sm:text-sm border transition-colors ${
+                        theme === 'dark'
+                          ? 'bg-slate-950 border-slate-800 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
+                          : 'bg-white border-slate-300 text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-hidden'
+                      }`}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
@@ -1034,6 +1125,9 @@ export default function App() {
                     <div className="mt-2.5 space-y-2 max-h-56 overflow-y-auto">
                       {effectiveOnlineUsers.map((u, idx) => {
                         const isSelf = u.id === userProfile.id || u.email === userProfile.email;
+                        const displayName = getDisplayName(u);
+                        const initial = displayName ? displayName.charAt(0).toUpperCase() : 'U';
+
                         return (
                           <div
                             key={u.id || u.email || idx}
@@ -1044,16 +1138,16 @@ export default function App() {
                             <div className="flex items-center space-x-2 min-w-0">
                               <div className="relative shrink-0">
                                 <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center font-bold text-[11px] text-indigo-700 dark:text-indigo-400">
-                                  {u.email ? u.email.charAt(0).toUpperCase() : 'U'}
+                                  {initial}
                                 </div>
                                 <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white dark:border-slate-900"></span>
                               </div>
                               <div className="truncate">
                                 <p className="font-bold truncate text-slate-900 dark:text-white">
-                                  {u.email}
+                                  {displayName}
                                 </p>
-                                <p className="text-[10px] text-slate-600 dark:text-slate-400">
-                                  {u.role === 'manager' ? 'Manager' : 'Team Member'} {isSelf && '• You'}
+                                <p className="text-[10px] text-slate-600 dark:text-slate-400 truncate">
+                                  {u.email} • {u.role === 'manager' ? 'Manager' : 'Team Member'} {isSelf && '• You'}
                                 </p>
                               </div>
                             </div>
@@ -1109,6 +1203,20 @@ export default function App() {
                 {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
               </button>
 
+              {/* Edit Profile Modal Trigger */}
+              <button
+                onClick={() => setIsProfileModalOpen(true)}
+                title="Edit Profile & Display Name"
+                className={`hidden md:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                  theme === 'dark'
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:text-white'
+                    : 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200 shadow-xs'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Edit Profile</span>
+              </button>
+
               {/* Change Password Modal Trigger */}
               <button
                 onClick={() => setIsPasswordModalOpen(true)}
@@ -1123,16 +1231,23 @@ export default function App() {
                 <span>Password</span>
               </button>
 
-              {/* Authenticated User Pill with Static Role */}
-              <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
-                theme === 'dark' ? 'bg-slate-800/90 border-slate-700 text-slate-100' : 'bg-slate-100 border-slate-300 text-slate-900'
-              }`}>
+              {/* Authenticated User Pill with Static Role & Clickable Profile Edit */}
+              <button
+                type="button"
+                onClick={() => setIsProfileModalOpen(true)}
+                title={`Logged in as ${userProfile.email}. Click to edit profile.`}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer text-left ${
+                  theme === 'dark'
+                    ? 'bg-slate-800/90 border-slate-700 text-slate-100 hover:bg-slate-800 hover:border-slate-600'
+                    : 'bg-slate-100 border-slate-300 text-slate-900 hover:bg-slate-200'
+                }`}
+              >
                 {isManager ? (
-                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
                 ) : (
-                  <User className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <User className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                 )}
-                <span className="max-w-[130px] truncate">{userProfile.email}</span>
+                <span className="max-w-[130px] truncate font-bold">{getDisplayName(userProfile)}</span>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
                   isManager
                     ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
@@ -1140,7 +1255,7 @@ export default function App() {
                 }`}>
                   {isManager ? 'Manager' : 'Team'}
                 </span>
-              </div>
+              </button>
 
               {/* Logout Button */}
               <button
@@ -1176,7 +1291,7 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <strong className="font-bold">Team Member View:</strong> Showing only customer accounts assigned to <em>{userProfile.email}</em>.
+                  <strong className="font-bold">Team Member View:</strong> Showing only customer accounts assigned to <em>{userProfile.full_name ? `${userProfile.full_name} (${userProfile.email})` : (getDisplayName(userProfile) || userProfile.email)}</em>.
                 </>
               )}
             </span>
@@ -1387,7 +1502,14 @@ export default function App() {
                             ) : (
                               <User className="w-4 h-4 text-slate-500 shrink-0" />
                             )}
-                            <span className="truncate max-w-[200px]">{rep.email}</span>
+                            <div className="truncate max-w-[200px]">
+                              <span className="font-bold text-slate-900 dark:text-white block truncate">
+                                {getDisplayName(rep)}
+                              </span>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400 block truncate font-normal">
+                                {rep.email}
+                              </span>
+                            </div>
                             {isRepOnline && (
                               <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
@@ -1572,7 +1694,7 @@ export default function App() {
                     </option>
                     {teamProfiles.map((p) => (
                       <option key={p.id} value={p.id} className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                        {p.email} {p.role === 'manager' ? '(Manager)' : ''}
+                        {getDisplayName(p)} ({p.email}) {p.role === 'manager' ? '• Manager' : ''}
                       </option>
                     ))}
                   </select>
@@ -1734,8 +1856,13 @@ export default function App() {
 
                         {/* Manager: Assigned Rep */}
                         {isManager && (
-                          <td className="py-3 px-3 text-xs text-slate-700 dark:text-slate-300 truncate max-w-[130px] font-semibold">
-                            {getRepEmail(customer.assigned_to)}
+                          <td className="py-3 px-3 text-xs text-slate-700 dark:text-slate-300 truncate max-w-[150px]">
+                            <div className="font-bold text-slate-900 dark:text-white truncate">
+                              {getRepDisplayName(customer.assigned_to)}
+                            </div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-normal">
+                              {getRepEmail(customer.assigned_to)}
+                            </div>
                           </td>
                         )}
 
@@ -1895,6 +2022,152 @@ export default function App() {
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-xs cursor-pointer"
                 >
                   Update Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: EDIT PROFILE / USER ACCOUNT */}
+      {/* ==================================================================== */}
+      {isProfileModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className={`max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white shadow-slate-950/80' : 'bg-white border-slate-300 text-slate-950 shadow-xl'
+          }`}>
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-950 dark:text-white">Edit Profile</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">Manage your display name & profile identity</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsProfileModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const newName = formData.get('full_name')?.toString() || '';
+                await handleUpdateProfile(newName);
+              }}
+              className="space-y-4 text-xs"
+            >
+              {/* Account Email (Read-Only) */}
+              <div>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">
+                  Account Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    disabled
+                    value={userProfile?.email || ''}
+                    className={`w-full pl-9 pr-3 py-2.5 rounded-xl border text-xs sm:text-sm opacity-70 cursor-not-allowed ${
+                      theme === 'dark' ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-600'
+                    }`}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Supabase Auth identity. Used for login authentication and account recovery.
+                </p>
+              </div>
+
+              {/* Assigned Role Badge */}
+              <div>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">
+                  Assigned Security Role
+                </label>
+                <div className={`flex items-center space-x-2 px-3 py-2.5 rounded-xl border ${
+                  theme === 'dark' ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-300'
+                }`}>
+                  {isManager ? (
+                    <ShieldCheck className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                  ) : (
+                    <User className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  )}
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {isManager ? 'Manager (Full Company Oversight)' : 'Team Member (Assigned Client Scope)'}
+                  </span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ml-auto ${
+                    isManager
+                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                  }`}>
+                    {isManager ? 'Manager' : 'Team'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Full Name / Display Name Input */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-900 dark:text-slate-100">
+                    Full Name / Display Name
+                  </label>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                    profiles.full_name
+                  </span>
+                </div>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    name="full_name"
+                    type="text"
+                    defaultValue={userProfile?.full_name || ''}
+                    placeholder={formatEmailPrefix(userProfile?.email) || 'e.g. Rajesh Sharma'}
+                    autoFocus
+                    className={`w-full pl-9 pr-3 py-2.5 rounded-xl border text-xs sm:text-sm font-medium ${
+                      theme === 'dark'
+                        ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
+                        : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-hidden'
+                    }`}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 leading-normal">
+                  Displayed across tables, client cards, reports, online team badges, and live team chat. If left empty, your email prefix (<span className="font-semibold text-slate-700 dark:text-slate-300">{formatEmailPrefix(userProfile?.email)}</span>) is used automatically.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(false)}
+                  className={`px-3 py-2 rounded-xl font-bold border cursor-pointer transition-colors ${
+                    theme === 'dark' ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-800 hover:bg-slate-100'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+                >
+                  {profileSaving ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving to Supabase...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Profile Changes</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

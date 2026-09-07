@@ -30,7 +30,7 @@ import {
   Legend,
   Cell
 } from 'recharts';
-import { formatCurrency, getCategoryBadgeStyle } from '../constants';
+import { formatCurrency, getCategoryBadgeStyle, getDisplayName } from '../constants';
 
 export default function DateBreakdownWidget({
   customers = [],
@@ -310,7 +310,7 @@ export default function DateBreakdownWidget({
             <p className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-0.5">
               {isManager
                 ? 'Master scheduled collection timeline grouped by target invoice clearing dates across all clients'
-                : `Personal expected collection forecast for ${userProfile?.email || 'your assigned client accounts'}`}
+                : `Personal expected collection forecast for ${userProfile?.full_name ? `${userProfile.full_name} (${userProfile.email})` : (getDisplayName(userProfile) || 'your assigned client accounts')}`}
             </p>
           </div>
         </div>

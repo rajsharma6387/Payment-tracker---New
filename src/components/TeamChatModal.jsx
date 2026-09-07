@@ -11,6 +11,7 @@ import {
   Sparkles,
   DollarSign
 } from 'lucide-react';
+import { getDisplayName } from '../constants';
 
 const QUICK_UPDATES = [
   "💰 Payment collected successfully!",
@@ -121,6 +122,7 @@ export default function TeamChatModal({
     const newMsg = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       sender_id: userProfile.id,
+      sender_name: getDisplayName(userProfile),
       sender_email: userProfile.email,
       sender_role: userProfile.role,
       message: text,
@@ -231,7 +233,7 @@ export default function TeamChatModal({
                 }`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                <span className="truncate max-w-[120px]">{u.email?.split('@')[0]}</span>
+                <span className="truncate max-w-[120px]">{getDisplayName(u)}</span>
                 {u.role === 'manager' && (
                   <span className="text-[9px] text-purple-600 dark:text-purple-400 font-extrabold">(Mgr)</span>
                 )}
@@ -260,6 +262,8 @@ export default function TeamChatModal({
                 ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : '';
 
+              const senderLabel = isSelf ? 'You' : (m.sender_name || getDisplayName({ email: m.sender_email }));
+
               return (
                 <div
                   key={m.id}
@@ -267,7 +271,7 @@ export default function TeamChatModal({
                 >
                   <div className="flex items-center space-x-1.5 mb-1 text-[10px] text-slate-500 dark:text-slate-400">
                     <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {isSelf ? 'You' : m.sender_email}
+                      {senderLabel}
                     </span>
                     {isManager && (
                       <span className="px-1 py-0.2 rounded bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300 font-bold text-[9px] border border-purple-200 dark:border-purple-800">

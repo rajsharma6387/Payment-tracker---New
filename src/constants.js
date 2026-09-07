@@ -13,10 +13,10 @@ export const CATEGORIES = [
 ];
 
 export const DEMO_PROFILES = [
-  { id: "11111111-1111-4111-8111-111111111111", email: "manager@company.com", role: "manager" },
-  { id: "22222222-2222-4222-8222-222222222222", email: "rajesh.team@company.com", role: "team" },
-  { id: "33333333-3333-4333-8333-333333333333", email: "priya.team@company.com", role: "team" },
-  { id: "44444444-4444-4444-8444-444444444444", email: "amit.team@company.com", role: "team" },
+  { id: "11111111-1111-4111-8111-111111111111", email: "manager@company.com", role: "manager", full_name: "Operations Manager" },
+  { id: "22222222-2222-4222-8222-222222222222", email: "rajesh.team@company.com", role: "team", full_name: "Rajesh Sharma" },
+  { id: "33333333-3333-4333-8333-333333333333", email: "priya.team@company.com", role: "team", full_name: "Priya Patel" },
+  { id: "44444444-4444-4444-8444-444444444444", email: "amit.team@company.com", role: "team", full_name: "Amit Verma" },
 ];
 
 export const INITIAL_CUSTOMERS = [
@@ -153,6 +153,32 @@ export const INITIAL_CUSTOMERS = [
     assigned_to: "11111111-1111-4111-8111-111111111111", // Manager assignment
   },
 ];
+
+export const formatEmailPrefix = (email) => {
+  if (!email || typeof email !== 'string') return '';
+  const prefix = email.split('@')[0] || '';
+  return prefix;
+};
+
+export const getDisplayName = (profileOrEmail) => {
+  if (!profileOrEmail) return 'Unassigned';
+  if (typeof profileOrEmail === 'object') {
+    if (profileOrEmail.full_name && typeof profileOrEmail.full_name === 'string' && profileOrEmail.full_name.trim()) {
+      return profileOrEmail.full_name.trim();
+    }
+    if (profileOrEmail.email) {
+      return formatEmailPrefix(profileOrEmail.email);
+    }
+    return profileOrEmail.id ? profileOrEmail.id.slice(0, 8) + '...' : 'Unassigned';
+  }
+  if (typeof profileOrEmail === 'string') {
+    if (profileOrEmail.includes('@')) {
+      return formatEmailPrefix(profileOrEmail);
+    }
+    return profileOrEmail;
+  }
+  return 'Unassigned';
+};
 
 export const formatCurrency = (amount) => {
   const num = Number(amount) || 0;
