@@ -34,8 +34,22 @@ import {
   ThumbsUp,
   Sparkles,
   PartyPopper,
-  ExternalLink
+  ExternalLink,
+  MessageSquare,
+  CalendarCheck
 } from 'lucide-react';
+
+import {
+  CATEGORIES,
+  DEMO_PROFILES,
+  INITIAL_CUSTOMERS,
+  formatCurrency,
+  getCategoryBadgeStyle,
+} from './constants';
+
+import TeamChatModal from './components/TeamChatModal';
+import DateBreakdownWidget from './components/DateBreakdownWidget';
+import CustomerRecordModal from './components/CustomerRecordModal';
 
 // ============================================================================
 // 1. SUPABASE CLIENT CONFIGURATION
@@ -45,130 +59,11 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ============================================================================
-// 2. DEMO SEED DATA (Includes Manager with assigned accounts & Customization category)
-// ============================================================================
-const DEMO_PROFILES = [
-  { id: "11111111-1111-4111-8111-111111111111", email: "manager@company.com", role: "manager" },
-  { id: "22222222-2222-4222-8222-222222222222", email: "rajesh.team@company.com", role: "team" },
-  { id: "33333333-3333-4333-8333-333333333333", email: "priya.team@company.com", role: "team" },
-  { id: "44444444-4444-4444-8444-444444444444", email: "amit.team@company.com", role: "team" },
-];
-
-const INITIAL_CUSTOMERS = [
-  {
-    id: 1,
-    created_at: new Date().toISOString(),
-    customer_name: "Apex Industrial Tech Ltd",
-    category: "AMC",
-    expected_amount: 185000,
-    received_amount: 185000,
-    expected_date: "2026-09-15",
-    is_receipt: true,
-    remarks: "Annual maintenance renewal cleared via NEFT #98421.",
-    assigned_to: "22222222-2222-4222-8222-222222222222",
-  },
-  {
-    id: 2,
-    created_at: new Date().toISOString(),
-    customer_name: "BlueSky Logistics Corp",
-    category: "Solution",
-    expected_amount: 320000,
-    received_amount: 120000,
-    expected_date: "2026-09-20",
-    is_receipt: false,
-    remarks: "Phase 1 ERP deployment milestone. Balance due next week.",
-    assigned_to: "22222222-2222-4222-8222-222222222222",
-  },
-  {
-    id: 3,
-    created_at: new Date().toISOString(),
-    customer_name: "Zenith Global Healthcare",
-    category: "Outstanding",
-    expected_amount: 95000,
-    received_amount: 0,
-    expected_date: "2026-08-28",
-    is_receipt: false,
-    remarks: "Overdue Q2 billing. Sent formal notice to finance desk.",
-    assigned_to: "22222222-2222-4222-8222-222222222222",
-  },
-  {
-    id: 4,
-    created_at: new Date().toISOString(),
-    customer_name: "Matrix Cloud Software",
-    category: "Solution",
-    expected_amount: 240000,
-    received_amount: 240000,
-    expected_date: "2026-09-12",
-    is_receipt: true,
-    remarks: "API integration completed. Payment verified.",
-    assigned_to: "33333333-3333-4333-8333-333333333333",
-  },
-  {
-    id: 5,
-    created_at: new Date().toISOString(),
-    customer_name: "Horizon Retail Ventures",
-    category: "Customization",
-    expected_amount: 140000,
-    received_amount: 50000,
-    expected_date: "2026-09-25",
-    is_receipt: false,
-    remarks: "Custom barcode inventory plugin & billing slip tailoring.",
-    assigned_to: "33333333-3333-4333-8333-333333333333",
-  },
-  {
-    id: 6,
-    created_at: new Date().toISOString(),
-    customer_name: "Kaveri Packaging Pvt Ltd",
-    category: "Outstanding",
-    expected_amount: 115000,
-    received_amount: 0,
-    expected_date: "2026-09-02",
-    is_receipt: false,
-    remarks: "Audit clearance pending from client finance desk.",
-    assigned_to: "44444444-4444-4444-8444-444444444444",
-  },
-  {
-    id: 7,
-    created_at: new Date().toISOString(),
-    customer_name: "OmniCorp Infrastructure",
-    category: "Solution",
-    expected_amount: 450000,
-    received_amount: 225000,
-    expected_date: "2026-09-28",
-    is_receipt: false,
-    remarks: "50% milestone advance credited. Final 50% on UAT signoff.",
-    assigned_to: "44444444-4444-4444-8444-444444444444",
-  },
-  {
-    id: 8,
-    created_at: new Date().toISOString(),
-    customer_name: "Vertex FinTech Solutions",
-    category: "Customization",
-    expected_amount: 275000,
-    received_amount: 275000,
-    expected_date: "2026-09-18",
-    is_receipt: true,
-    remarks: "Enterprise custom payment gateway adapter and custom ledger reports.",
-    assigned_to: "11111111-1111-4111-8111-111111111111", // Assigned to Manager!
-  }
-];
-
-// Currency formatting helper (INR)
-const formatCurrency = (amount) => {
-  const num = Number(amount) || 0;
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(num);
-};
-
 export default function App() {
   // ============================================================================
   // STATE MANAGEMENT
   // ============================================================================
-  // Theme state: default is 'light' as required
+  // Theme state
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('fincollect_theme') || 'light';
   });
@@ -196,11 +91,13 @@ export default function App() {
   const [selectedStatus, setSelectedStatus] = useState('ALL'); // 'ALL' | 'received' | 'pending'
   const [selectedRep, setSelectedRep] = useState('ALL');
   const [selectedMonth, setSelectedMonth] = useState('ALL');
+  const [selectedDateFilter, setSelectedDateFilter] = useState('');
 
   // Modals & UI Actions
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [editCustomer, setEditCustomer] = useState(null);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
   // Celebration Banner / Modal state (Thumbs Up 👍 / Well Done!)
@@ -223,7 +120,6 @@ export default function App() {
       amount,
       id: Date.now(),
     });
-    // Auto-dismiss celebration popup after 4 seconds
     setTimeout(() => {
       setCelebrationData((curr) => (curr ? null : curr));
     }, 4500);
@@ -246,7 +142,7 @@ export default function App() {
   }, [theme]);
 
   // ============================================================================
-  // 3. AUTHENTICATION & INITIALIZATION
+  // AUTHENTICATION & INITIALIZATION
   // ============================================================================
   useEffect(() => {
     const checkInitialSession = async () => {
@@ -256,7 +152,6 @@ export default function App() {
           setSessionUser(session.user);
           await fetchProfile(session.user.id, session.user.email || '');
         } else {
-          // Check if user was logged in with demo profile
           const savedDemo = localStorage.getItem('fincollect_active_user');
           if (savedDemo) {
             try {
@@ -264,7 +159,7 @@ export default function App() {
               setUserProfile(parsed);
               setSessionUser({ id: parsed.id, email: parsed.email });
             } catch {
-              // No valid saved demo
+              // fallback
             }
           }
         }
@@ -277,7 +172,6 @@ export default function App() {
 
     checkInitialSession();
 
-    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setSessionUser(session.user);
@@ -293,10 +187,9 @@ export default function App() {
     };
   }, []);
 
-  // Fetch or upsert profile in Supabase
   const fetchProfile = async (userId, email) => {
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
@@ -306,7 +199,6 @@ export default function App() {
         setUserProfile(data);
         setIsLiveSupabase(true);
       } else {
-        // Create profile if missing in profiles table
         const newProfile = {
           id: userId,
           email: email,
@@ -321,12 +213,11 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.warn('Error fetching profile from Supabase:', err);
+      console.warn('Profile lookup note:', err);
       setUserProfile({ id: userId, email, role: 'team' });
     }
   };
 
-  // Handle Login & Signup
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError(null);
@@ -346,7 +237,6 @@ export default function App() {
           showToast(`Welcome back, ${data.user.email}!`, 'success');
         }
       } else {
-        // Sign up
         const { data, error } = await supabase.auth.signUp({
           email: authEmail,
           password: authPassword,
@@ -374,7 +264,6 @@ export default function App() {
     }
   };
 
-  // Instant Demo Login (For seamless preview/testing without manual auth steps)
   const handleQuickDemoLogin = (profile) => {
     localStorage.setItem('fincollect_active_user', JSON.stringify(profile));
     setUserProfile(profile);
@@ -383,7 +272,6 @@ export default function App() {
     showToast(`Logged in as ${profile.role.toUpperCase()} (${profile.email})`, 'info');
   };
 
-  // Logout
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -396,7 +284,6 @@ export default function App() {
     showToast('Logged out successfully.', 'info');
   };
 
-  // Change Password
   const handleChangePassword = async (newPassword) => {
     try {
       if (isLiveSupabase) {
@@ -411,25 +298,20 @@ export default function App() {
   };
 
   // ============================================================================
-  // 4. DATA LOADING & SYNCHRONIZATION
+  // DATA LOADING & SYNCHRONIZATION
   // ============================================================================
   const loadData = async () => {
     if (!userProfile) return;
     setDataLoading(true);
 
     try {
-      // 1. Fetch team profiles from Supabase
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('*');
-
+      const { data: profilesData } = await supabase.from('profiles').select('*');
       if (profilesData && profilesData.length > 0) {
         setTeamProfiles(profilesData);
       } else {
         setTeamProfiles(DEMO_PROFILES);
       }
 
-      // 2. Fetch customers from Supabase
       const { data: customerData } = await supabase
         .from('customers')
         .select('*')
@@ -439,7 +321,6 @@ export default function App() {
         setCustomers(customerData);
         setIsLiveSupabase(true);
       } else {
-        // Fallback to local storage cache
         const localSaved = localStorage.getItem('fincollect_customers_cache');
         if (localSaved) {
           setCustomers(JSON.parse(localSaved));
@@ -491,7 +372,6 @@ export default function App() {
         }
       });
 
-      // Deduplicate by id or email
       const map = new Map();
       onlineList.forEach((u) => {
         const k = u.id || u.email;
@@ -504,15 +384,9 @@ export default function App() {
     };
 
     channel
-      .on('presence', { event: 'sync' }, () => {
-        updatePresenceState();
-      })
-      .on('presence', { event: 'join' }, () => {
-        updatePresenceState();
-      })
-      .on('presence', { event: 'leave' }, () => {
-        updatePresenceState();
-      })
+      .on('presence', { event: 'sync' }, updatePresenceState)
+      .on('presence', { event: 'join' }, updatePresenceState)
+      .on('presence', { event: 'leave' }, updatePresenceState)
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           try {
@@ -532,13 +406,12 @@ export default function App() {
       try {
         channel.untrack();
         supabase.removeChannel(channel);
-      } catch (cleanupErr) {
+      } catch {
         // ignore
       }
     };
   }, [userProfile?.id, userProfile?.email, userProfile?.role]);
 
-  // Online team members roster: always ensure currently logged-in user is present
   const effectiveOnlineUsers = useMemo(() => {
     const list = [...onlineUsers];
     if (userProfile) {
@@ -561,15 +434,18 @@ export default function App() {
   };
 
   // ============================================================================
-  // 5. CUSTOMER RECORD ACTIONS & CELEBRATION
+  // CUSTOMER RECORD ACTIONS & AUTOMATIONS
   // ============================================================================
-  // Toggle Receipt status (is_receipt)
   const handleToggleReceipt = async (customer) => {
     const nextReceipt = !customer.is_receipt;
     const totalExp = Number(customer.expected_amount) || 0;
     const currentRec = Number(customer.received_amount) || 0;
-    // When marking receipt as received, auto-fill received amount to match invoice if currently zero or partial
+    
+    // When marking receipt as received, auto-fill received amount to match expected invoice
     const nextRec = nextReceipt && currentRec < totalExp ? totalExp : customer.received_amount;
+    const nextRemarks = nextReceipt && (currentRec === 0 || !customer.remarks)
+      ? "Received successfully"
+      : customer.remarks;
 
     try {
       if (isLiveSupabase) {
@@ -578,19 +454,19 @@ export default function App() {
           .update({
             is_receipt: nextReceipt,
             received_amount: nextRec,
+            remarks: nextRemarks,
           })
           .eq('id', customer.id);
       }
 
       const updated = customers.map((c) =>
         c.id === customer.id
-          ? { ...c, is_receipt: nextReceipt, received_amount: nextRec }
+          ? { ...c, is_receipt: nextReceipt, received_amount: nextRec, remarks: nextRemarks }
           : c
       );
       updateLocalCustomers(updated);
 
       if (nextReceipt) {
-        // Trigger Thumbs Up / Well Done celebration popup!
         triggerCelebration(customer.customer_name, nextRec || totalExp);
         showToast(`Receipt received for ${customer.customer_name}! 👍`, 'success');
       } else {
@@ -601,23 +477,23 @@ export default function App() {
     }
   };
 
-  // Save Customer Changes (Add / Edit)
-  const handleSaveCustomer = async (formData) => {
+  // Save Customer Changes (Add / Edit) with Mandatory Field & Exceeding Validation
+  const handleSaveCustomer = async (recordData) => {
     try {
       const isEditing = Boolean(editCustomer);
       const assignedToId =
         userProfile?.role === 'manager'
-          ? formData.assigned_to
+          ? recordData.assigned_to
           : userProfile?.id;
 
-      const recordData = {
-        customer_name: formData.customer_name,
-        category: formData.category,
-        expected_amount: Number(formData.expected_amount) || 0,
-        received_amount: Number(formData.received_amount) || 0,
-        expected_date: formData.expected_date,
-        is_receipt: Boolean(formData.is_receipt),
-        remarks: formData.remarks || '',
+      const payload = {
+        customer_name: recordData.customer_name,
+        category: recordData.category,
+        expected_amount: Number(recordData.expected_amount) || 0,
+        received_amount: Number(recordData.received_amount) || 0,
+        expected_date: recordData.expected_date,
+        is_receipt: Boolean(recordData.is_receipt),
+        remarks: recordData.remarks || '',
         assigned_to: assignedToId,
       };
 
@@ -625,27 +501,25 @@ export default function App() {
         if (isLiveSupabase) {
           await supabase
             .from('customers')
-            .update(recordData)
+            .update(payload)
             .eq('id', editCustomer.id);
         }
         const updated = customers.map((c) =>
-          c.id === editCustomer.id ? { ...c, ...recordData } : c
+          c.id === editCustomer.id ? { ...c, ...payload } : c
         );
         updateLocalCustomers(updated);
 
-        // If newly marked as receipt received, trigger celebration!
-        if (recordData.is_receipt && !editCustomer.is_receipt) {
-          triggerCelebration(recordData.customer_name, recordData.received_amount);
+        if (payload.is_receipt && !editCustomer.is_receipt) {
+          triggerCelebration(payload.customer_name, payload.received_amount);
         }
 
         setEditCustomer(null);
-        showToast(`Customer "${formData.customer_name}" updated!`, 'success');
+        showToast(`Customer "${payload.customer_name}" updated successfully!`, 'success');
       } else {
-        // Add new customer
         if (isLiveSupabase) {
           const { data, error } = await supabase
             .from('customers')
-            .insert({ ...recordData, created_at: new Date().toISOString() })
+            .insert({ ...payload, created_at: new Date().toISOString() })
             .select()
             .single();
 
@@ -655,27 +529,25 @@ export default function App() {
           }
         } else {
           const localNew = {
-            ...recordData,
+            ...payload,
             id: Date.now(),
             created_at: new Date().toISOString(),
           };
           updateLocalCustomers([localNew, ...customers]);
         }
 
-        // If added with receipt already received, trigger celebration
-        if (recordData.is_receipt) {
-          triggerCelebration(recordData.customer_name, recordData.received_amount);
+        if (payload.is_receipt) {
+          triggerCelebration(payload.customer_name, payload.received_amount);
         }
 
         setIsAddModalOpen(false);
-        showToast(`New client "${formData.customer_name}" registered!`, 'success');
+        showToast(`New client "${payload.customer_name}" registered!`, 'success');
       }
     } catch (err) {
       showToast(`Action failed: ${err.message}`, 'error');
     }
   };
 
-  // Delete Customer
   const handleDeleteCustomer = async (id, name) => {
     if (!window.confirm(`Are you sure you want to delete the record for "${name}"?`)) return;
 
@@ -692,25 +564,21 @@ export default function App() {
   };
 
   // ============================================================================
-  // 6. ROLE-BASED DATA FILTERING & KPIS
+  // ROLE-BASED SCOPING & METRICS
   // ============================================================================
   const isManager = userProfile?.role === 'manager';
 
-  // Base scope based on RBAC
   const roleScopedCustomers = useMemo(() => {
     if (!userProfile) return [];
     if (isManager) {
-      return customers; // Manager sees all
+      return customers;
     }
-    // Team member: ONLY see records where assigned_to === userProfile.id
     return customers.filter((c) => c.assigned_to === userProfile.id);
   }, [customers, userProfile, isManager]);
 
-  // Secondary filters (Search, Category, Status, Rep, Month)
   const filteredCustomers = useMemo(() => {
     let list = [...roleScopedCustomers];
 
-    // Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -720,32 +588,31 @@ export default function App() {
       );
     }
 
-    // Category Filter (AMC, Solution, Outstanding, Customization)
     if (selectedCategory !== 'ALL') {
       list = list.filter((c) => c.category === selectedCategory);
     }
 
-    // Status (Received / Pending)
     if (selectedStatus === 'received') {
       list = list.filter((c) => c.is_receipt);
     } else if (selectedStatus === 'pending') {
       list = list.filter((c) => !c.is_receipt);
     }
 
-    // Manager Rep Filter
     if (isManager && selectedRep !== 'ALL') {
       list = list.filter((c) => c.assigned_to === selectedRep);
     }
 
-    // Month Filter
     if (selectedMonth !== 'ALL') {
       list = list.filter((c) => c.expected_date?.startsWith(selectedMonth));
     }
 
-    return list;
-  }, [roleScopedCustomers, searchQuery, selectedCategory, selectedStatus, selectedRep, selectedMonth, isManager]);
+    if (selectedDateFilter) {
+      list = list.filter((c) => c.expected_date === selectedDateFilter);
+    }
 
-  // Aggregate KPI metrics
+    return list;
+  }, [roleScopedCustomers, searchQuery, selectedCategory, selectedStatus, selectedRep, selectedMonth, selectedDateFilter, isManager]);
+
   const totalExpected = useMemo(() => {
     return filteredCustomers.reduce((acc, c) => acc + (Number(c.expected_amount) || 0), 0);
   }, [filteredCustomers]);
@@ -760,13 +627,15 @@ export default function App() {
 
   const recoveryPercent = totalExpected > 0 ? Math.round((totalReceived / totalExpected) * 100) : 0;
 
-  // Manager: Team Performance Breakdown
-  // NOTE: Includes all profiles (including the Manager's own account) seamlessly!
+  const getRepEmail = (assignedId) => {
+    const p = teamProfiles.find((t) => t.id === assignedId);
+    return p?.email || (assignedId ? assignedId.slice(0, 8) + '...' : 'Unassigned');
+  };
+
   const teamBreakdown = useMemo(() => {
     if (!isManager) return [];
     const repMap = new Map();
 
-    // Map all team profiles, including the manager's account
     teamProfiles.forEach((p) => {
       repMap.set(p.id, {
         email: p.email,
@@ -777,7 +646,6 @@ export default function App() {
       });
     });
 
-    // Also verify any customer with assigned_to is included in case not in profiles
     customers.forEach((c) => {
       if (c.assigned_to && !repMap.has(c.assigned_to)) {
         repMap.set(c.assigned_to, {
@@ -790,7 +658,6 @@ export default function App() {
       }
     });
 
-    // Aggregate values
     customers.forEach((c) => {
       const rep = repMap.get(c.assigned_to);
       if (rep) {
@@ -812,25 +679,15 @@ export default function App() {
     }));
   }, [customers, teamProfiles, isManager]);
 
-  // Helper: Get Rep Email
-  const getRepEmail = (assignedId) => {
-    const p = teamProfiles.find((t) => t.id === assignedId);
-    return p?.email || (assignedId ? assignedId.slice(0, 8) + '...' : 'Unassigned');
-  };
-
-  // Handle Click on Grand Total KPI Cards in Manager View
   const handleKpiCardClick = (targetStatus) => {
     if (!isManager) return;
-    // If already active, reset to 'ALL', otherwise set to clicked status
     setSelectedStatus((prev) => (prev === targetStatus ? 'ALL' : targetStatus));
-    // Smoothly scroll down to the Customer Ledger Table section
     const ledgerElem = document.getElementById('customer-ledger-section');
     if (ledgerElem) {
       ledgerElem.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
-  // CSV Export
   const exportCSV = () => {
     const headers = ['Customer Name', 'Category', 'Expected Amount', 'Received Amount', 'Balance', 'Expected Date', 'Status', 'Remarks', 'Assigned Rep'];
     const rows = filteredCustomers.map((c) => [
@@ -856,7 +713,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Loading Screen
   if (loadingSession) {
     return (
       <div className={`min-h-screen flex items-center justify-center ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
@@ -869,14 +725,13 @@ export default function App() {
   }
 
   // ============================================================================
-  // 7. AUTHENTICATION FIRST ROUTING (LOGIN / SIGNUP SCREEN)
+  // AUTHENTICATION FIRST ROUTING (LOGIN / SIGNUP SCREEN)
   // ============================================================================
   if (!userProfile) {
     return (
       <div className={`min-h-screen flex flex-col justify-center items-center px-4 sm:px-6 transition-colors ${
         theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
       }`}>
-        {/* Floating Theme Switcher on Login Page */}
         <div className="absolute top-4 right-4">
           <button
             onClick={toggleTheme}
@@ -892,7 +747,6 @@ export default function App() {
         </div>
 
         <div className="max-w-md w-full space-y-6">
-          {/* Brand Header */}
           <div className="text-center">
             <div className="w-14 h-14 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-indigo-600/25 mb-3">
               ₹
@@ -905,13 +759,11 @@ export default function App() {
             </p>
           </div>
 
-          {/* Login Card */}
           <div className={`p-6 sm:p-7 rounded-2xl border transition-all ${
             theme === 'dark'
               ? 'bg-slate-900 border-slate-800 shadow-2xl'
               : 'bg-white border-slate-300 shadow-xl'
           }`}>
-            {/* Mode Switcher */}
             <div className={`grid grid-cols-2 p-1 rounded-xl mb-5 text-xs font-semibold ${
               theme === 'dark' ? 'bg-slate-950 border border-slate-800' : 'bg-slate-100 border border-slate-200'
             }`}>
@@ -946,7 +798,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Form */}
             <form onSubmit={handleAuthSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
@@ -1023,7 +874,6 @@ export default function App() {
               </button>
             </form>
 
-            {/* Quick Demo Credentials / Test Accounts */}
             <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800">
               <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider text-center mb-3">
                 1-Click Instant Preview (Demo Bypass)
@@ -1058,14 +908,15 @@ export default function App() {
                 >
                   <div className="text-xs font-bold text-emerald-900 dark:text-emerald-300 flex items-center space-x-1.5">
                     <User className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Team Rep View</span>
+                    <span>Team View</span>
                   </div>
                   <p className="text-[10px] text-slate-600 dark:text-slate-400 truncate mt-0.5 font-medium">
-                    Assigned portfolio only
+                    Rajesh's clients only
                   </p>
                 </button>
               </div>
             </div>
+
           </div>
         </div>
       </div>
@@ -1073,74 +924,42 @@ export default function App() {
   }
 
   // ============================================================================
-  // 8. LOGGED-IN ROLE DASHBOARD
+  // MAIN DASHBOARD INTERFACE
   // ============================================================================
   return (
-    <div className={`min-h-screen flex flex-col antialiased transition-colors ${
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
       theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
     }`}>
       
-      {/* ==================================================================== */}
-      {/* CELEBRATION MODAL (Thumbs Up 👍 / Well Done! Animation) */}
-      {/* ==================================================================== */}
+      {/* CELEBRATION POPUP BANNER (Thumbs Up 👍 / Well Done!) */}
       {celebrationData && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className={`relative max-w-sm w-full rounded-2xl border p-6 text-center shadow-2xl overflow-hidden transition-all transform scale-100 ${
-            theme === 'dark'
-              ? 'bg-slate-900 border-emerald-500/50 text-white shadow-emerald-950/50'
-              : 'bg-white border-emerald-300 text-slate-900 shadow-xl'
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in zoom-in-95 duration-200">
+          <div className={`max-w-md w-full rounded-2xl border p-6 text-center shadow-2xl relative overflow-hidden ${
+            theme === 'dark' ? 'bg-slate-900 border-emerald-600/80 text-white' : 'bg-white border-emerald-400 text-slate-950 shadow-emerald-500/10'
           }`}>
-            
-            {/* Background glowing rings */}
-            <div className="absolute -top-16 -right-16 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
-            <div className="absolute -bottom-16 -left-16 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
-            
-            {/* Close button */}
-            <button
-              onClick={() => setCelebrationData(null)}
-              className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            {/* Thumbs Up Icon with animation */}
-            <div className="relative inline-flex items-center justify-center mb-3">
-              <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/80 border-2 border-emerald-500 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-lg shadow-emerald-500/20 animate-bounce">
-                <ThumbsUp className="w-8 h-8 fill-emerald-500/20 stroke-emerald-600 dark:stroke-emerald-400" />
-              </div>
-              <span className="absolute -top-1 -right-1 text-lg">🎉</span>
-              <span className="absolute -bottom-1 -left-1 text-lg">✨</span>
+            <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950 border-2 border-emerald-400 dark:border-emerald-600 mx-auto flex items-center justify-center text-emerald-600 dark:text-emerald-400 text-3xl shadow-lg shadow-emerald-500/20 mb-3 animate-bounce">
+              👍
             </div>
+            
+            <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+              <span>PAYMENT RECEIVED & VERIFIED</span>
+            </span>
 
-            {/* Congratulatory Text */}
-            <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
-              Well Done! 👍
+            <h3 className="text-xl sm:text-2xl font-black text-slate-950 dark:text-white mt-1">
+              Well Done!
             </h3>
-            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5 flex items-center justify-center space-x-1">
-              <CheckCircle className="w-3.5 h-3.5" />
-              <span>Payment Receipt Received & Confirmed</span>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-2 font-medium">
+              Funds confirmed for <strong className="text-slate-950 dark:text-white font-bold">{celebrationData.customerName}</strong>!
             </p>
 
-            <div className={`mt-3.5 p-3 rounded-xl border text-xs text-left ${
-              theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-300'
-            }`}>
-              <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium">
-                <span>Customer</span>
-                <span className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[170px]">
-                  {celebrationData.customerName}
-                </span>
-              </div>
-              <div className="flex items-center justify-between mt-1 text-slate-700 dark:text-slate-300 font-medium">
-                <span>Payment Cleared</span>
-                <span className="font-black text-emerald-700 dark:text-emerald-400 text-sm">
-                  {formatCurrency(celebrationData.amount)}
-                </span>
-              </div>
+            <div className="my-4 py-2.5 px-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300 font-black text-lg">
+              {formatCurrency(celebrationData.amount)} Credited
             </div>
 
             <button
               onClick={() => setCelebrationData(null)}
-              className="w-full mt-4 py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/25 transition-all cursor-pointer"
+              className="w-full mt-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/25 transition-all cursor-pointer"
             >
               Awesome! Continue
             </button>
@@ -1199,8 +1018,9 @@ export default function App() {
               </div>
             </div>
 
-            {/* Actions & Profile */}
-            <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Actions & Header Tools */}
+            <div className="flex items-center space-x-2 sm:space-x-2.5">
+              
               {/* Add Customer Button */}
               <button
                 onClick={() => setIsAddModalOpen(true)}
@@ -1211,98 +1031,115 @@ export default function App() {
                 <span className="sm:hidden">Add</span>
               </button>
 
-              {/* Manager Only: Realtime Online Team Members Badge & Popover */}
-              {isManager && (
-                <div className="relative">
-                  <button
-                    onClick={() => setIsPresenceOpen((prev) => !prev)}
-                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                      theme === 'dark'
-                        ? 'bg-slate-800 border-slate-700 text-slate-200 hover:border-emerald-500/60'
-                        : 'bg-emerald-50 border-emerald-300 text-emerald-950 hover:bg-emerald-100 shadow-xs'
-                    }`}
-                    title="Click to view live online team members"
-                  >
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                    </span>
-                    <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>
-                      <strong className="font-bold">{effectiveOnlineUsers.length}</strong> Online
-                    </span>
-                    <ChevronDown className={`w-3 h-3 transition-transform ${isPresenceOpen ? 'rotate-180' : ''}`} />
-                  </button>
+              {/* Online Team Members Badge & Popover */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsPresenceOpen((prev) => !prev)}
+                  className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                    theme === 'dark'
+                      ? 'bg-slate-800 border-slate-700 text-slate-200 hover:border-emerald-500/60'
+                      : 'bg-emerald-50 border-emerald-300 text-emerald-950 hover:bg-emerald-100 shadow-xs'
+                  }`}
+                  title="Click to view live online team members"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span className="hidden md:inline">
+                    <strong className="font-bold">{effectiveOnlineUsers.length}</strong> Online
+                  </span>
+                  <ChevronDown className={`w-3 h-3 transition-transform ${isPresenceOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-                  {/* Dropdown Popover */}
-                  {isPresenceOpen && (
-                    <div className={`absolute right-0 mt-2 w-72 sm:w-80 rounded-2xl border p-4 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 ${
-                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white shadow-slate-950/80' : 'bg-white border-slate-300 text-slate-900 shadow-xl'
-                    }`}>
-                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center space-x-2">
-                          <span className="relative flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                          </span>
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-950 dark:text-white">
-                            Active Team Members ({effectiveOnlineUsers.length})
-                          </h4>
-                        </div>
-                        <button
-                          onClick={() => setIsPresenceOpen(false)}
-                          className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 cursor-pointer"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="mt-2.5 space-y-2 max-h-60 overflow-y-auto">
-                        {effectiveOnlineUsers.map((u, idx) => {
-                          const isSelf = u.id === userProfile.id || u.email === userProfile.email;
-                          return (
-                            <div
-                              key={u.id || u.email || idx}
-                              className={`flex items-center justify-between p-2 rounded-xl border text-xs transition-colors ${
-                                theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                              }`}
-                            >
-                              <div className="flex items-center space-x-2 min-w-0">
-                                <div className="relative shrink-0">
-                                  <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center font-bold text-[11px] text-indigo-700 dark:text-indigo-400">
-                                    {u.email ? u.email.charAt(0).toUpperCase() : 'U'}
-                                  </div>
-                                  <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white dark:border-slate-900"></span>
-                                </div>
-                                <div className="truncate">
-                                  <p className="font-bold truncate text-slate-900 dark:text-white">
-                                    {u.email}
-                                  </p>
-                                  <p className="text-[10px] text-slate-600 dark:text-slate-400">
-                                    {u.role === 'manager' ? 'Manager' : 'Team Member'} {isSelf && '• You'}
-                                  </p>
-                                </div>
-                              </div>
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 shrink-0 ml-2 border border-emerald-300 dark:border-emerald-800">
-                                Active Now
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Realtime channel info footer */}
-                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-600 dark:text-slate-400">
-                        <span>Supabase Realtime Presence</span>
-                        <span className="text-emerald-700 dark:text-emerald-400 font-semibold flex items-center space-x-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-                          <span>Channel: online-users</span>
+                {/* Dropdown Popover */}
+                {isPresenceOpen && (
+                  <div className={`absolute right-0 mt-2 w-72 sm:w-80 rounded-2xl border p-4 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white shadow-slate-950/80' : 'bg-white border-slate-300 text-slate-900 shadow-xl'
+                  }`}>
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center space-x-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                         </span>
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-950 dark:text-white">
+                          Active Team Members ({effectiveOnlineUsers.length})
+                        </h4>
                       </div>
+                      <button
+                        onClick={() => setIsPresenceOpen(false)}
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  )}
-                </div>
-              )}
+
+                    <div className="mt-2.5 space-y-2 max-h-56 overflow-y-auto">
+                      {effectiveOnlineUsers.map((u, idx) => {
+                        const isSelf = u.id === userProfile.id || u.email === userProfile.email;
+                        return (
+                          <div
+                            key={u.id || u.email || idx}
+                            className={`flex items-center justify-between p-2 rounded-xl border text-xs transition-colors ${
+                              theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2 min-w-0">
+                              <div className="relative shrink-0">
+                                <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center font-bold text-[11px] text-indigo-700 dark:text-indigo-400">
+                                  {u.email ? u.email.charAt(0).toUpperCase() : 'U'}
+                                </div>
+                                <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white dark:border-slate-900"></span>
+                              </div>
+                              <div className="truncate">
+                                <p className="font-bold truncate text-slate-900 dark:text-white">
+                                  {u.email}
+                                </p>
+                                <p className="text-[10px] text-slate-600 dark:text-slate-400">
+                                  {u.role === 'manager' ? 'Manager' : 'Team Member'} {isSelf && '• You'}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 shrink-0 ml-2 border border-emerald-300 dark:border-emerald-800">
+                              Active
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Quick Button to open Team Chat from dropdown */}
+                    <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <button
+                        onClick={() => {
+                          setIsPresenceOpen(false);
+                          setIsChatOpen(true);
+                        }}
+                        className="w-full py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Open Live Team Chat</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* LIVE TEAM CHAT BUTTON (Feature 1) */}
+              <button
+                onClick={() => setIsChatOpen(true)}
+                title="Live Team Chat with online members"
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                  theme === 'dark'
+                    ? 'bg-slate-800 border-slate-700 text-indigo-300 hover:text-white hover:border-indigo-500'
+                    : 'bg-indigo-50 border-indigo-200 text-indigo-950 hover:bg-indigo-100 shadow-xs'
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span className="hidden sm:inline">Live Team Chat</span>
+              </button>
 
               {/* Theme Toggle (Light / Dark) */}
               <button
@@ -1336,7 +1173,7 @@ export default function App() {
                 theme === 'dark' ? 'bg-slate-800/90 border-slate-700 text-slate-100' : 'bg-slate-100 border-slate-300 text-slate-900'
               }`}>
                 <User className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span className="max-w-[130px] truncate">{userProfile.email}</span>
+                <span className="max-w-[120px] truncate">{userProfile.email}</span>
               </div>
 
               {/* Demo Role Switch Shortcut */}
@@ -1394,12 +1231,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-3 text-[11px]">
-            {isManager && (
-              <div className="hidden sm:flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>{effectiveOnlineUsers.length} Active Now</span>
-              </div>
-            )}
             <div className="flex items-center space-x-1">
               <span className="text-slate-600 dark:text-slate-400 font-medium">Database:</span>
               <span className={`font-bold ${isLiveSupabase ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
@@ -1455,34 +1286,21 @@ export default function App() {
             </div>
           </div>
 
-          {/* Card 2: Total Received Amount (CLICKABLE IN MANAGER DASHBOARD) */}
+          {/* Card 2: Total Received */}
           <div
             id="kpi-card-total-received"
             onClick={() => isManager && handleKpiCardClick('received')}
             className={`p-5 rounded-2xl border transition-all ${
               theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
             } ${
-              isManager
-                ? 'cursor-pointer hover:border-emerald-500 dark:hover:border-emerald-500 hover:shadow-md active:scale-[0.99]'
-                : ''
-            } ${
-              isManager && selectedStatus === 'received'
-                ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/30'
-                : ''
+              isManager ? 'cursor-pointer hover:border-emerald-500 dark:hover:border-emerald-500 hover:shadow-md' : ''
             }`}
-            title={isManager ? "Click to filter table to only cleared/received customers" : undefined}
+            title={isManager ? "Click to filter ledger by Cleared Payments" : undefined}
           >
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-1.5">
-                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider">
-                  {isManager ? 'Grand Total Received' : 'My Total Received'}
-                </span>
-                {isManager && (
-                  <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold px-1.5 py-0.2 rounded border border-emerald-300 dark:border-emerald-800/60">
-                    Filter ↗
-                  </span>
-                )}
-              </div>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                {isManager ? 'Grand Total Received' : 'My Total Received'}
+              </span>
               <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
                 <CheckCircle className="w-5 h-5" />
               </div>
@@ -1491,61 +1309,44 @@ export default function App() {
               <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-400">
                 {formatCurrency(totalReceived)}
               </div>
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 font-medium">
-                <span className="font-bold text-emerald-800 dark:text-emerald-400">{recoveryPercent}% Collected</span>
-                <span>
-                  {isManager && selectedStatus === 'received' ? (
-                    <span className="text-emerald-800 dark:text-emerald-300 font-bold underline">
-                      Filter Active (Click to reset)
-                    </span>
-                  ) : (
-                    `${filteredCustomers.filter(c => c.is_receipt).length} cleared receipts`
-                  )}
-                </span>
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium">
+                <span>{recoveryPercent}% Collected Recovery</span>
+                {isManager && selectedStatus === 'received' && (
+                  <span className="text-emerald-700 dark:text-emerald-300 font-bold underline">
+                    Filter Active (Click to reset)
+                  </span>
+                )}
               </div>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
               <div
-                className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500"
+                className="bg-emerald-500 h-1.5 rounded-full transition-all"
                 style={{ width: `${Math.min(recoveryPercent, 100)}%` }}
               />
             </div>
           </div>
 
-          {/* Card 3: Total Balance Pending (CLICKABLE IN MANAGER DASHBOARD) */}
+          {/* Card 3: Grand Balance Pending */}
           <div
-            id="kpi-card-total-balance"
+            id="kpi-card-total-pending"
             onClick={() => isManager && handleKpiCardClick('pending')}
-            className={`p-5 rounded-2xl border sm:col-span-2 lg:col-span-1 transition-all ${
+            className={`p-5 rounded-2xl border transition-all ${
               theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
             } ${
-              isManager
-                ? 'cursor-pointer hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md active:scale-[0.99]'
-                : ''
-            } ${
-              isManager && selectedStatus === 'pending'
-                ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/30 dark:bg-amber-950/30'
-                : ''
+              isManager ? 'cursor-pointer hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md' : ''
             }`}
-            title={isManager ? "Click to filter table to only pending/unreceived balance customers" : undefined}
+            title={isManager ? "Click to filter ledger by Pending Balances" : undefined}
           >
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-1.5">
-                <span className="text-xs font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider">
-                  {isManager ? 'Grand Balance Pending' : 'My Balance Pending'}
-                </span>
-                {isManager && (
-                  <span className="text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-300 dark:border-amber-800/60">
-                    Filter ↗
-                  </span>
-                )}
-              </div>
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                {isManager ? 'Grand Balance Pending' : 'My Balance Pending'}
+              </span>
               <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
                 <Clock className="w-5 h-5" />
               </div>
             </div>
             <div className="mt-3">
-              <div className="text-2xl sm:text-3xl font-black tracking-tight text-amber-700 dark:text-amber-400">
+              <div className="text-2xl sm:text-3xl font-black tracking-tight text-amber-800 dark:text-amber-400">
                 {formatCurrency(totalBalance)}
               </div>
               <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium">
@@ -1702,6 +1503,18 @@ export default function App() {
         )}
 
         {/* ==================================================================== */}
+        {/* EXPECTED DATE BREAKDOWN SUMMARY WIDGET (Feature 4) */}
+        {/* ==================================================================== */}
+        <DateBreakdownWidget
+          customers={roleScopedCustomers}
+          isManager={isManager}
+          userProfile={userProfile}
+          theme={theme}
+          onSelectDateFilter={(dateStr) => setSelectedDateFilter(dateStr)}
+          selectedDateFilter={selectedDateFilter}
+        />
+
+        {/* ==================================================================== */}
         {/* CUSTOMERS LEDGER & ACTION TOOLBAR */}
         {/* ==================================================================== */}
         <section
@@ -1710,22 +1523,21 @@ export default function App() {
             theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
           }`}
         >
-          
           {/* Action & Filter Bar */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             
             {/* Search Input */}
-            <div className="relative flex-1 min-w-[220px]">
-              <Search className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search client name or remarks..."
+                placeholder="Search by customer name, notes..."
                 className={`w-full pl-9 pr-8 py-2 rounded-xl text-xs sm:text-sm border transition-colors ${
                   theme === 'dark'
-                    ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
-                    : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
+                    ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:outline-hidden focus:border-indigo-500'
+                    : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500 focus:outline-hidden focus:border-indigo-500 shadow-xs'
                 }`}
               />
               {searchQuery && (
@@ -1738,10 +1550,10 @@ export default function App() {
               )}
             </div>
 
-            {/* Filter Dropdowns */}
+            {/* Filter Dropdowns (Includes Tally, TSS, Other, AMC, Solution, Outstanding, Customization) */}
             <div className="flex flex-wrap items-center gap-2">
               
-              {/* Category Filter - Supported options: AMC, Solution, Outstanding, Customization */}
+              {/* Category Filter */}
               <div className={`flex items-center space-x-1.5 border rounded-xl px-2.5 py-1.5 text-xs ${
                 theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-900 shadow-xs'
               }`}>
@@ -1754,18 +1566,11 @@ export default function App() {
                   <option value="ALL" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                     All Categories
                   </option>
-                  <option value="AMC" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    AMC
-                  </option>
-                  <option value="Solution" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    Solution
-                  </option>
-                  <option value="Outstanding" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    Outstanding
-                  </option>
-                  <option value="Customization" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    Customization
-                  </option>
+                  {CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat} className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                      {cat}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1791,21 +1596,19 @@ export default function App() {
                 </select>
               </div>
 
-              {/* Manager Only: Team Member Filter */}
+              {/* Manager: Rep Filter */}
               {isManager && (
                 <div className={`flex items-center space-x-1.5 border rounded-xl px-2.5 py-1.5 text-xs ${
-                  theme === 'dark'
-                    ? 'bg-purple-950/40 border-purple-800/80 text-purple-300'
-                    : 'bg-purple-50 border-purple-300 text-purple-950 font-bold shadow-xs'
+                  theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-900 shadow-xs'
                 }`}>
-                  <User className="w-3.5 h-3.5 text-purple-600" />
+                  <User className="w-3.5 h-3.5 text-slate-500" />
                   <select
                     value={selectedRep}
                     onChange={(e) => setSelectedRep(e.target.value)}
-                    className="bg-transparent font-bold focus:outline-hidden cursor-pointer text-purple-950 dark:text-purple-200"
+                    className="bg-transparent font-semibold focus:outline-hidden cursor-pointer text-slate-900 dark:text-slate-200 max-w-[140px] truncate"
                   >
                     <option value="ALL" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                      All Team Members
+                      All Representatives
                     </option>
                     {teamProfiles.map((p) => (
                       <option key={p.id} value={p.id} className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
@@ -1816,66 +1619,38 @@ export default function App() {
                 </div>
               )}
 
-              {/* Month Filter */}
-              <div className={`flex items-center space-x-1.5 border rounded-xl px-2.5 py-1.5 text-xs ${
-                theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-900 shadow-xs'
-              }`}>
-                <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="bg-transparent font-semibold focus:outline-hidden cursor-pointer text-slate-900 dark:text-slate-200"
-                >
-                  <option value="ALL" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    All Months
-                  </option>
-                  <option value="2026-09" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    September 2026
-                  </option>
-                  <option value="2026-08" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    August 2026
-                  </option>
-                  <option value="2026-10" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    October 2026
-                  </option>
-                </select>
-              </div>
+              {/* Active Date Filter Chip if selected from widget */}
+              {selectedDateFilter && (
+                <div className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-950 dark:text-indigo-300 text-xs font-bold">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Date: {selectedDateFilter}</span>
+                  <button
+                    onClick={() => setSelectedDateFilter('')}
+                    className="text-indigo-600 hover:text-indigo-900 dark:hover:text-white ml-1 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
 
-              {/* Export CSV Button */}
+              {/* CSV Export Button */}
               <button
                 onClick={exportCSV}
-                className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
+                title="Export current view to CSV"
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
                   theme === 'dark'
-                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                    : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-xs'
+                    ? 'bg-slate-950 border-slate-800 hover:bg-slate-800 text-slate-200'
+                    : 'bg-white border-slate-300 hover:bg-slate-100 text-slate-800 shadow-xs'
                 }`}
-                title="Export current table view to CSV file"
               >
                 <Download className="w-3.5 h-3.5 text-slate-500" />
-                <span>Export CSV</span>
+                <span className="hidden sm:inline">Export CSV</span>
               </button>
-
             </div>
-
           </div>
 
-          {/* Active Status Badge filter notification */}
-          {selectedStatus !== 'ALL' && (
-            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-300 dark:border-indigo-800 text-xs">
-              <span className="text-indigo-950 dark:text-indigo-300 font-semibold">
-                Filtering by: <strong>{selectedStatus === 'received' ? 'Receipt Received (Cleared)' : 'Pending Balances'}</strong> ({filteredCustomers.length} records)
-              </span>
-              <button
-                onClick={() => setSelectedStatus('ALL')}
-                className="text-indigo-700 dark:text-indigo-300 hover:underline font-bold text-[11px] cursor-pointer"
-              >
-                Clear Filter (Show All)
-              </button>
-            </div>
-          )}
-
           {/* Customer Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-left text-xs sm:text-sm">
               <thead className={`border-b text-[11px] font-bold uppercase tracking-wider ${
                 theme === 'dark' ? 'bg-slate-950 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-800 border-slate-300'
@@ -1883,121 +1658,143 @@ export default function App() {
                 <tr>
                   <th className="py-3 px-4">Customer Name</th>
                   <th className="py-3 px-3">Category</th>
-                  {isManager && <th className="py-3 px-3">Assigned Rep</th>}
-                  <th className="py-3 px-3 text-right">Expected</th>
-                  <th className="py-3 px-3 text-right">Received</th>
-                  <th className="py-3 px-3 text-right">Balance</th>
-                  <th className="py-3 px-3 text-center">Due Date</th>
+                  <th className="py-3 px-4 text-right">Total Expected</th>
+                  <th className="py-3 px-4 text-right">Received</th>
+                  <th className="py-3 px-4 text-right">Balance</th>
+                  <th className="py-3 px-3 text-center">Expected Date</th>
                   <th className="py-3 px-3 text-center">Receipt Status</th>
-                  <th className="py-3 px-4">Remarks</th>
+                  <th className="py-3 px-4">Remarks & Notes</th>
+                  {isManager && <th className="py-3 px-3">Assigned Rep</th>}
                   <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-slate-200' : 'divide-slate-200 text-slate-800'}`}>
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={isManager ? 10 : 9} className="py-8 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
-                      No customer payment records match your filters.
+                    <td colSpan={isManager ? 10 : 9} className="py-8 text-center text-slate-500">
+                      <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="font-bold text-slate-800 dark:text-slate-300">No customer records match your filter criteria.</p>
+                      <button
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSelectedCategory('ALL');
+                          setSelectedStatus('ALL');
+                          setSelectedRep('ALL');
+                          setSelectedDateFilter('');
+                        }}
+                        className="mt-2 text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer"
+                      >
+                        Reset All Filters
+                      </button>
                     </td>
                   </tr>
                 ) : (
-                  filteredCustomers.map((c) => {
-                    const balance = Math.max(0, Number(c.expected_amount) - Number(c.received_amount));
+                  filteredCustomers.map((customer) => {
+                    const expected = Number(customer.expected_amount) || 0;
+                    const received = Number(customer.received_amount) || 0;
+                    const balance = Math.max(0, expected - received);
+                    const isDark = theme === 'dark';
+
                     return (
                       <tr
-                        key={c.id}
-                        className={`transition-colors ${theme === 'dark' ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}`}
+                        key={customer.id}
+                        className={`transition-colors ${
+                          customer.is_receipt
+                            ? (isDark ? 'hover:bg-emerald-950/20' : 'hover:bg-emerald-50/50')
+                            : (isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/80')
+                        }`}
                       >
                         {/* Customer Name */}
                         <td className="py-3 px-4 font-bold text-slate-950 dark:text-white">
                           <div className="flex items-center space-x-2">
-                            <Building className="w-4 h-4 text-indigo-600 shrink-0" />
-                            <span>{c.customer_name}</span>
+                            <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate max-w-[200px]">{customer.customer_name}</span>
                           </div>
                         </td>
 
-                        {/* Category Badge (Supports AMC, Solution, Outstanding, Customization) */}
+                        {/* Category Badge */}
                         <td className="py-3 px-3">
-                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
-                            c.category === 'AMC'
-                              ? 'bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-900'
-                              : c.category === 'Solution'
-                              ? 'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-900'
-                              : c.category === 'Customization'
-                              ? 'bg-teal-100 text-teal-900 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-900'
-                              : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-900'
-                          }`}>
-                            {c.category}
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] border font-bold ${getCategoryBadgeStyle(customer.category, isDark)}`}>
+                            {customer.category}
                           </span>
                         </td>
 
-                        {/* Assigned Rep (Manager Only) */}
-                        {isManager && (
-                          <td className="py-3 px-3 text-xs text-slate-800 dark:text-slate-300 font-semibold">
-                            <div className="flex items-center space-x-1.5">
-                              <User className="w-3.5 h-3.5 text-slate-500" />
-                              <span className="truncate max-w-[130px]">{getRepEmail(c.assigned_to)}</span>
-                            </div>
-                          </td>
-                        )}
-
-                        {/* Expected Amount */}
-                        <td className="py-3 px-3 text-right font-bold text-slate-950 dark:text-white">
-                          {formatCurrency(c.expected_amount)}
+                        {/* Total Expected */}
+                        <td className="py-3 px-4 text-right font-bold text-slate-950 dark:text-white">
+                          {formatCurrency(expected)}
                         </td>
 
                         {/* Received Amount */}
-                        <td className="py-3 px-3 text-right font-black text-emerald-700 dark:text-emerald-400">
-                          {formatCurrency(c.received_amount)}
+                        <td className="py-3 px-4 text-right font-black text-emerald-700 dark:text-emerald-400">
+                          {formatCurrency(received)}
                         </td>
 
-                        {/* Balance */}
-                        <td className="py-3 px-3 text-right font-black text-amber-800 dark:text-amber-400">
+                        {/* Balance Amount */}
+                        <td className="py-3 px-4 text-right font-black text-amber-800 dark:text-amber-400">
                           {formatCurrency(balance)}
                         </td>
 
                         {/* Expected Date */}
-                        <td className="py-3 px-3 text-center text-xs text-slate-800 dark:text-slate-300 font-mono font-medium">
-                          {c.expected_date}
+                        <td className="py-3 px-3 text-center whitespace-nowrap text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          <div className="flex items-center justify-center space-x-1">
+                            <Calendar className="w-3 h-3 text-slate-500" />
+                            <span>{customer.expected_date}</span>
+                          </div>
                         </td>
 
-                        {/* Inline Receipt Toggle */}
-                        <td className="py-3 px-3 text-center">
+                        {/* Receipt Status Toggle Button */}
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
                           <button
-                            onClick={() => handleToggleReceipt(c)}
-                            title="Click to toggle Receipt status"
-                            className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer hover:scale-105 active:scale-95 ${
-                              c.is_receipt
-                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800 shadow-xs'
-                                : 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                            onClick={() => handleToggleReceipt(customer)}
+                            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer border ${
+                              customer.is_receipt
+                                ? 'bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-200'
+                                : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-amber-100 dark:hover:bg-amber-950/60 hover:text-amber-900 hover:border-amber-300'
                             }`}
+                            title="Click to toggle Receipt Confirmation and celebrate"
                           >
-                            {c.is_receipt ? <Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400" /> : <Clock className="w-3 h-3 text-slate-500" />}
-                            <span>{c.is_receipt ? 'Receipt Received' : 'Not Received'}</span>
+                            {customer.is_receipt ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Receipt Received</span>
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                                <span>Pending</span>
+                              </>
+                            )}
                           </button>
                         </td>
 
                         {/* Remarks */}
-                        <td className="py-3 px-4 text-xs text-slate-700 dark:text-slate-300 font-medium max-w-[180px] truncate" title={c.remarks}>
-                          {c.remarks || '—'}
+                        <td className="py-3 px-4 text-xs max-w-[200px] truncate text-slate-700 dark:text-slate-300 font-medium" title={customer.remarks}>
+                          {customer.remarks || <span className="text-slate-400 italic">None</span>}
                         </td>
 
+                        {/* Manager: Assigned Rep */}
+                        {isManager && (
+                          <td className="py-3 px-3 text-xs text-slate-700 dark:text-slate-300 truncate max-w-[130px] font-semibold">
+                            {getRepEmail(customer.assigned_to)}
+                          </td>
+                        )}
+
                         {/* Actions */}
-                        <td className="py-3 px-3 text-right">
+                        <td className="py-3 px-3 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end space-x-1">
                             <button
-                              onClick={() => setEditCustomer(c)}
-                              className="p-1.5 rounded-lg text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                              title="Edit amount, remarks, or receipt status"
+                              onClick={() => setEditCustomer(customer)}
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                              title="Edit Record"
                             >
-                              <Edit3 className="w-4 h-4" />
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => handleDeleteCustomer(c.id, c.customer_name)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                              title="Delete customer record"
+                              onClick={() => handleDeleteCustomer(customer.id, customer.customer_name)}
+                              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                              title="Delete Record"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -2008,379 +1805,62 @@ export default function App() {
               </tbody>
             </table>
           </div>
+
+          {/* Ledger Summary Stats */}
+          <div className="flex flex-col sm:flex-row items-center justify-between text-xs text-slate-600 dark:text-slate-400 pt-2 border-t border-slate-200 dark:border-slate-800 gap-2">
+            <span>
+              Showing <strong className="font-bold text-slate-900 dark:text-white">{filteredCustomers.length}</strong> of {roleScopedCustomers.length} records
+            </span>
+            <div className="flex items-center space-x-4">
+              <span>Expected: <strong className="font-bold text-slate-900 dark:text-white">{formatCurrency(totalExpected)}</strong></span>
+              <span>Received: <strong className="font-bold text-emerald-700 dark:text-emerald-400">{formatCurrency(totalReceived)}</strong></span>
+              <span>Pending: <strong className="font-bold text-amber-800 dark:text-amber-400">{formatCurrency(totalBalance)}</strong></span>
+            </div>
+          </div>
+
         </section>
+
       </main>
 
       {/* ==================================================================== */}
-      {/* 9. MODALS: ADD CUSTOMER, EDIT RECORD, CHANGE PASSWORD */}
+      {/* MODALS */}
       {/* ==================================================================== */}
 
-      {/* MODAL 1: ADD NEW CUSTOMER (Includes "Customization" option) */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className={`max-w-lg w-full rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-          }`}>
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-              <h3 className="font-bold text-base text-slate-950 dark:text-white">
-                {isManager ? 'Add New Client & Assign Member' : 'Add New Customer Account'}
-              </h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* MODAL 1: ADD NEW CUSTOMER RECORD */}
+      <CustomerRecordModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSave={handleSaveCustomer}
+        initialData={null}
+        isManager={isManager}
+        teamProfiles={teamProfiles}
+        currentUserId={userProfile?.id}
+        theme={theme}
+      />
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                handleSaveCustomer({
-                  customer_name: formData.get('customer_name'),
-                  category: formData.get('category'),
-                  expected_amount: formData.get('expected_amount'),
-                  received_amount: formData.get('received_amount'),
-                  expected_date: formData.get('expected_date'),
-                  is_receipt: formData.get('is_receipt') === 'on',
-                  remarks: formData.get('remarks'),
-                  assigned_to: formData.get('assigned_to') || userProfile.id,
-                });
-              }}
-              className="space-y-3.5 text-xs"
-            >
-              <div>
-                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Customer / Organization Name</label>
-                <input
-                  name="customer_name"
-                  type="text"
-                  required
-                  placeholder="e.g. Acme Industrial Technologies"
-                  className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500'
-                  }`}
-                />
-              </div>
+      {/* MODAL 2: UPDATE CUSTOMER PAYMENT RECORD */}
+      <CustomerRecordModal
+        isOpen={Boolean(editCustomer)}
+        onClose={() => setEditCustomer(null)}
+        onSave={handleSaveCustomer}
+        initialData={editCustomer}
+        isManager={isManager}
+        teamProfiles={teamProfiles}
+        currentUserId={userProfile?.id}
+        theme={theme}
+      />
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Category Type</label>
-                  <select
-                    name="category"
-                    defaultValue="AMC"
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  >
-                    <option value="AMC">AMC</option>
-                    <option value="Solution">Solution</option>
-                    <option value="Outstanding">Outstanding</option>
-                    <option value="Customization">Customization</option>
-                  </select>
-                </div>
+      {/* MODAL 3: LIVE TEAM CHAT MODAL (Feature 1) */}
+      <TeamChatModal
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        supabase={supabase}
+        userProfile={userProfile}
+        effectiveOnlineUsers={effectiveOnlineUsers}
+        theme={theme}
+      />
 
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Expected Payment Date</label>
-                  <input
-                    name="expected_date"
-                    type="date"
-                    required
-                    defaultValue={new Date().toISOString().slice(0, 10)}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Total Expected Amount (₹)</label>
-                  <input
-                    name="expected_amount"
-                    type="number"
-                    min="0"
-                    required
-                    placeholder="150000"
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500'
-                    }`}
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Initial Received Amount (₹)</label>
-                  <input
-                    name="received_amount"
-                    type="number"
-                    min="0"
-                    defaultValue="0"
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              {/* Manager: Member Assignment Dropdown (Includes All Profiles & Manager) */}
-              {isManager && (
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Assign To Team Member / Account</label>
-                  <select
-                    name="assigned_to"
-                    defaultValue={userProfile.id}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  >
-                    {teamProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.email} {p.role === 'manager' ? '(Manager)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Remarks & Notes</label>
-                <textarea
-                  name="remarks"
-                  rows={2}
-                  placeholder="e.g. Cheque due on 15th, awaiting client director approval"
-                  className={`w-full px-3 py-2 rounded-xl border text-xs ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500'
-                  }`}
-                />
-              </div>
-
-              <div className="flex items-center space-x-2 pt-1">
-                <input
-                  name="is_receipt"
-                  type="checkbox"
-                  id="add_receipt_status"
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                />
-                <label htmlFor="add_receipt_status" className="font-semibold text-slate-900 dark:text-slate-100 cursor-pointer">
-                  Payment Receipt already received and verified (Triggers Thumbs Up celebration)
-                </label>
-              </div>
-
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className={`px-3 py-2 rounded-xl font-bold border cursor-pointer ${
-                    theme === 'dark' ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-800 hover:bg-slate-100'
-                  }`}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-xs cursor-pointer"
-                >
-                  Create Customer Record
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: EDIT CUSTOMER / IN-LINE UPDATER (Includes "Customization" option) */}
-      {editCustomer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className={`max-w-lg w-full rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-          }`}>
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-              <div>
-                <h3 className="font-bold text-base text-slate-950 dark:text-white">Update Payment Record</h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">{editCustomer.customer_name}</p>
-              </div>
-              <button onClick={() => setEditCustomer(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                handleSaveCustomer({
-                  customer_name: formData.get('customer_name'),
-                  category: formData.get('category'),
-                  expected_amount: formData.get('expected_amount'),
-                  received_amount: formData.get('received_amount'),
-                  expected_date: formData.get('expected_date'),
-                  is_receipt: formData.get('is_receipt') === 'on',
-                  remarks: formData.get('remarks'),
-                  assigned_to: formData.get('assigned_to') || editCustomer.assigned_to,
-                });
-              }}
-              className="space-y-3.5 text-xs"
-            >
-              <div>
-                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Customer Name</label>
-                <input
-                  name="customer_name"
-                  type="text"
-                  required
-                  defaultValue={editCustomer.customer_name}
-                  className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                  }`}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Category</label>
-                  <select
-                    name="category"
-                    defaultValue={editCustomer.category}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  >
-                    <option value="AMC">AMC</option>
-                    <option value="Solution">Solution</option>
-                    <option value="Outstanding">Outstanding</option>
-                    <option value="Customization">Customization</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Expected Date</label>
-                  <input
-                    name="expected_date"
-                    type="date"
-                    required
-                    defaultValue={editCustomer.expected_date}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Expected Amount (₹)</label>
-                  <input
-                    name="expected_amount"
-                    type="number"
-                    min="0"
-                    required
-                    id="edit_expected_amount"
-                    defaultValue={editCustomer.expected_amount}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="font-bold text-slate-900 dark:text-slate-100">Received Amount (₹)</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const input = document.getElementById('edit_received_amount');
-                        const exp = document.getElementById('edit_expected_amount');
-                        const chk = document.getElementById('edit_is_receipt');
-                        if (input && exp) {
-                          input.value = exp.value;
-                        }
-                        if (chk) {
-                          chk.checked = true;
-                        }
-                      }}
-                      className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
-                    >
-                      100% Paid
-                    </button>
-                  </div>
-                  <input
-                    name="received_amount"
-                    type="number"
-                    min="0"
-                    id="edit_received_amount"
-                    defaultValue={editCustomer.received_amount}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              {/* Manager: Reassign Dropdown (Includes All Profiles & Manager) */}
-              {isManager && (
-                <div>
-                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Assigned Representative / Account</label>
-                  <select
-                    name="assigned_to"
-                    defaultValue={editCustomer.assigned_to}
-                    className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                    }`}
-                  >
-                    {teamProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.email} {p.role === 'manager' ? '(Manager)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Remarks & Status Notes</label>
-                <textarea
-                  name="remarks"
-                  rows={2}
-                  defaultValue={editCustomer.remarks}
-                  className={`w-full px-3 py-2 rounded-xl border text-xs ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
-                  }`}
-                />
-              </div>
-
-              <div className="flex items-center space-x-2 pt-1">
-                <input
-                  name="is_receipt"
-                  type="checkbox"
-                  id="edit_is_receipt"
-                  defaultChecked={editCustomer.is_receipt}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                />
-                <label htmlFor="edit_is_receipt" className="font-semibold text-slate-900 dark:text-slate-100 cursor-pointer">
-                  Receipt Received (Funds Confirmed) 👍
-                </label>
-              </div>
-
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setEditCustomer(null)}
-                  className={`px-3 py-2 rounded-xl font-bold border cursor-pointer ${
-                    theme === 'dark' ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-800 hover:bg-slate-100'
-                  }`}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-xs cursor-pointer"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 3: CHANGE PASSWORD */}
+      {/* MODAL 4: CHANGE PASSWORD */}
       {isPasswordModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
           <div className={`max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 ${
@@ -2406,7 +1886,7 @@ export default function App() {
                   showToast('Passwords do not match.', 'error');
                   return;
                 }
-                if (p1.length < 6) {
+                if (!p1 || p1.length < 6) {
                   showToast('Password must be at least 6 characters.', 'error');
                   return;
                 }
