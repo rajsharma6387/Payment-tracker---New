@@ -1503,14 +1503,22 @@ export default function App() {
         )}
 
         {/* ==================================================================== */}
-        {/* EXPECTED DATE BREAKDOWN SUMMARY WIDGET (Feature 4) */}
+        {/* EXPECTED DATE BREAKDOWN DUAL BAR CHART & TABLE WIDGET */}
         {/* ==================================================================== */}
         <DateBreakdownWidget
           customers={roleScopedCustomers}
           isManager={isManager}
           userProfile={userProfile}
           theme={theme}
-          onSelectDateFilter={(dateStr) => setSelectedDateFilter(dateStr)}
+          onSelectDateFilter={(dateStr) => {
+            setSelectedDateFilter(dateStr);
+            if (dateStr) {
+              const el = document.getElementById('customer-ledger-section');
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth' });
+              }
+            }
+          }}
           selectedDateFilter={selectedDateFilter}
         />
 
