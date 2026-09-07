@@ -30,7 +30,11 @@ import {
   Check,
   ArrowRight,
   TrendingUp,
-  FileText
+  FileText,
+  ThumbsUp,
+  Sparkles,
+  PartyPopper,
+  ExternalLink
 } from 'lucide-react';
 
 // ============================================================================
@@ -42,7 +46,7 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ============================================================================
-// 2. DEMO SEED DATA (For seamless preview fallback and immediate test accounts)
+// 2. DEMO SEED DATA (Includes Manager with assigned accounts & Customization category)
 // ============================================================================
 const DEMO_PROFILES = [
   { id: "11111111-1111-4111-8111-111111111111", email: "manager@company.com", role: "manager" },
@@ -104,12 +108,12 @@ const INITIAL_CUSTOMERS = [
     id: 5,
     created_at: new Date().toISOString(),
     customer_name: "Horizon Retail Ventures",
-    category: "AMC",
+    category: "Customization",
     expected_amount: 140000,
     received_amount: 50000,
     expected_date: "2026-09-25",
     is_receipt: false,
-    remarks: "Advance token received. Balance pending POS sync.",
+    remarks: "Custom barcode inventory plugin & billing slip tailoring.",
     assigned_to: "33333333-3333-4333-8333-333333333333",
   },
   {
@@ -135,6 +139,18 @@ const INITIAL_CUSTOMERS = [
     is_receipt: false,
     remarks: "50% milestone advance credited. Final 50% on UAT signoff.",
     assigned_to: "44444444-4444-4444-8444-444444444444",
+  },
+  {
+    id: 8,
+    created_at: new Date().toISOString(),
+    customer_name: "Vertex FinTech Solutions",
+    category: "Customization",
+    expected_amount: 275000,
+    received_amount: 275000,
+    expected_date: "2026-09-18",
+    is_receipt: true,
+    remarks: "Enterprise custom payment gateway adapter and custom ledger reports.",
+    assigned_to: "11111111-1111-4111-8111-111111111111", // Assigned to Manager!
   }
 ];
 
@@ -187,10 +203,30 @@ export default function App() {
   const [editCustomer, setEditCustomer] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
+  // Celebration Banner / Modal state (Thumbs Up 👍 / Well Done!)
+  const [celebrationData, setCelebrationData] = useState(null);
+
+  // Realtime Presence / Online Users
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [isPresenceOpen, setIsPresenceOpen] = useState(false);
+
   // Toast Helper
   const showToast = (text, type = 'success') => {
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Trigger celebration popup
+  const triggerCelebration = (customerName, amount) => {
+    setCelebrationData({
+      customerName,
+      amount,
+      id: Date.now(),
+    });
+    // Auto-dismiss celebration popup after 4 seconds
+    setTimeout(() => {
+      setCelebrationData((curr) => (curr ? null : curr));
+    }, 4500);
   };
 
   // Toggle Theme
@@ -427,13 +463,105 @@ export default function App() {
     }
   }, [userProfile]);
 
+  // ============================================================================
+  // SUPABASE REALTIME PRESENCE (Track Live Active Users)
+  // ============================================================================
+  useEffect(() => {
+    if (!userProfile) {
+      setOnlineUsers([]);
+      return;
+    }
+
+    const presenceKey = userProfile.id || userProfile.email;
+    const channel = supabase.channel('online-users', {
+      config: {
+        presence: {
+          key: presenceKey,
+        },
+      },
+    });
+
+    const updatePresenceState = () => {
+      const state = channel.presenceState();
+      const onlineList = [];
+      Object.keys(state).forEach((key) => {
+        const presences = state[key];
+        if (presences && presences.length > 0) {
+          onlineList.push(presences[0]);
+        }
+      });
+
+      // Deduplicate by id or email
+      const map = new Map();
+      onlineList.forEach((u) => {
+        const k = u.id || u.email;
+        if (k && !map.has(k)) {
+          map.set(k, u);
+        }
+      });
+
+      setOnlineUsers(Array.from(map.values()));
+    };
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        updatePresenceState();
+      })
+      .on('presence', { event: 'join' }, () => {
+        updatePresenceState();
+      })
+      .on('presence', { event: 'leave' }, () => {
+        updatePresenceState();
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          try {
+            await channel.track({
+              id: userProfile.id,
+              email: userProfile.email,
+              role: userProfile.role,
+              online_at: new Date().toISOString(),
+            });
+          } catch (trackErr) {
+            console.warn('Presence track warning:', trackErr);
+          }
+        }
+      });
+
+    return () => {
+      try {
+        channel.untrack();
+        supabase.removeChannel(channel);
+      } catch (cleanupErr) {
+        // ignore
+      }
+    };
+  }, [userProfile?.id, userProfile?.email, userProfile?.role]);
+
+  // Online team members roster: always ensure currently logged-in user is present
+  const effectiveOnlineUsers = useMemo(() => {
+    const list = [...onlineUsers];
+    if (userProfile) {
+      const exists = list.some((u) => u.id === userProfile.id || u.email === userProfile.email);
+      if (!exists) {
+        list.unshift({
+          id: userProfile.id,
+          email: userProfile.email,
+          role: userProfile.role,
+          online_at: new Date().toISOString(),
+        });
+      }
+    }
+    return list;
+  }, [onlineUsers, userProfile]);
+
   const updateLocalCustomers = (updated) => {
     setCustomers(updated);
     localStorage.setItem('fincollect_customers_cache', JSON.stringify(updated));
   };
 
   // ============================================================================
-  // 5. CUSTOMER RECORD ACTIONS
+  // 5. CUSTOMER RECORD ACTIONS & CELEBRATION
   // ============================================================================
   // Toggle Receipt status (is_receipt)
   const handleToggleReceipt = async (customer) => {
@@ -460,7 +588,14 @@ export default function App() {
           : c
       );
       updateLocalCustomers(updated);
-      showToast(`Receipt marked as ${nextReceipt ? 'Received' : 'Not Received'}`, 'success');
+
+      if (nextReceipt) {
+        // Trigger Thumbs Up / Well Done celebration popup!
+        triggerCelebration(customer.customer_name, nextRec || totalExp);
+        showToast(`Receipt received for ${customer.customer_name}! 👍`, 'success');
+      } else {
+        showToast(`Receipt marked as Pending`, 'info');
+      }
     } catch (err) {
       showToast(`Update error: ${err.message}`, 'error');
     }
@@ -497,6 +632,12 @@ export default function App() {
           c.id === editCustomer.id ? { ...c, ...recordData } : c
         );
         updateLocalCustomers(updated);
+
+        // If newly marked as receipt received, trigger celebration!
+        if (recordData.is_receipt && !editCustomer.is_receipt) {
+          triggerCelebration(recordData.customer_name, recordData.received_amount);
+        }
+
         setEditCustomer(null);
         showToast(`Customer "${formData.customer_name}" updated!`, 'success');
       } else {
@@ -520,6 +661,12 @@ export default function App() {
           };
           updateLocalCustomers([localNew, ...customers]);
         }
+
+        // If added with receipt already received, trigger celebration
+        if (recordData.is_receipt) {
+          triggerCelebration(recordData.customer_name, recordData.received_amount);
+        }
+
         setIsAddModalOpen(false);
         showToast(`New client "${formData.customer_name}" registered!`, 'success');
       }
@@ -573,7 +720,7 @@ export default function App() {
       );
     }
 
-    // Category
+    // Category Filter (AMC, Solution, Outstanding, Customization)
     if (selectedCategory !== 'ALL') {
       list = list.filter((c) => c.category === selectedCategory);
     }
@@ -614,17 +761,36 @@ export default function App() {
   const recoveryPercent = totalExpected > 0 ? Math.round((totalReceived / totalExpected) * 100) : 0;
 
   // Manager: Team Performance Breakdown
+  // NOTE: Includes all profiles (including the Manager's own account) seamlessly!
   const teamBreakdown = useMemo(() => {
     if (!isManager) return [];
     const repMap = new Map();
 
-    // Map all team members
-    teamProfiles
-      .filter((p) => p.role === 'team')
-      .forEach((p) => {
-        repMap.set(p.id, { email: p.email, expected: 0, received: 0, count: 0 });
+    // Map all team profiles, including the manager's account
+    teamProfiles.forEach((p) => {
+      repMap.set(p.id, {
+        email: p.email,
+        role: p.role,
+        expected: 0,
+        received: 0,
+        count: 0
       });
+    });
 
+    // Also verify any customer with assigned_to is included in case not in profiles
+    customers.forEach((c) => {
+      if (c.assigned_to && !repMap.has(c.assigned_to)) {
+        repMap.set(c.assigned_to, {
+          email: getRepEmail(c.assigned_to),
+          role: 'team',
+          expected: 0,
+          received: 0,
+          count: 0,
+        });
+      }
+    });
+
+    // Aggregate values
     customers.forEach((c) => {
       const rep = repMap.get(c.assigned_to);
       if (rep) {
@@ -637,6 +803,7 @@ export default function App() {
     return Array.from(repMap.entries()).map(([id, data]) => ({
       id,
       email: data.email,
+      role: data.role,
       count: data.count,
       expected: data.expected,
       received: data.received,
@@ -649,6 +816,18 @@ export default function App() {
   const getRepEmail = (assignedId) => {
     const p = teamProfiles.find((t) => t.id === assignedId);
     return p?.email || (assignedId ? assignedId.slice(0, 8) + '...' : 'Unassigned');
+  };
+
+  // Handle Click on Grand Total KPI Cards in Manager View
+  const handleKpiCardClick = (targetStatus) => {
+    if (!isManager) return;
+    // If already active, reset to 'ALL', otherwise set to clicked status
+    setSelectedStatus((prev) => (prev === targetStatus ? 'ALL' : targetStatus));
+    // Smoothly scroll down to the Customer Ledger Table section
+    const ledgerElem = document.getElementById('customer-ledger-section');
+    if (ledgerElem) {
+      ledgerElem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 
   // CSV Export
@@ -703,8 +882,8 @@ export default function App() {
             onClick={toggleTheme}
             className={`p-2 rounded-xl border text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
               theme === 'dark'
-                ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
-                : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 shadow-xs'
+                ? 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white'
+                : 'bg-white border-slate-300 text-slate-800 hover:text-slate-950 shadow-xs'
             }`}
           >
             {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
@@ -721,7 +900,7 @@ export default function App() {
             <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
               CollectIQ
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium">
               Payment Collection & Client Management Dashboard
             </p>
           </div>
@@ -730,19 +909,19 @@ export default function App() {
           <div className={`p-6 sm:p-7 rounded-2xl border transition-all ${
             theme === 'dark'
               ? 'bg-slate-900 border-slate-800 shadow-2xl'
-              : 'bg-white border-slate-200/90 shadow-xl'
+              : 'bg-white border-slate-300 shadow-xl'
           }`}>
             {/* Mode Switcher */}
             <div className={`grid grid-cols-2 p-1 rounded-xl mb-5 text-xs font-semibold ${
-              theme === 'dark' ? 'bg-slate-950 border border-slate-800' : 'bg-slate-100'
+              theme === 'dark' ? 'bg-slate-950 border border-slate-800' : 'bg-slate-100 border border-slate-200'
             }`}>
               <button
                 type="button"
                 onClick={() => { setAuthMode('login'); setAuthError(null); }}
                 className={`py-2 rounded-lg transition-all cursor-pointer ${
                   authMode === 'login'
-                    ? (theme === 'dark' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-900 shadow-xs font-bold')
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    ? (theme === 'dark' ? 'bg-indigo-600 text-white font-bold' : 'bg-white text-slate-950 shadow-xs font-bold border border-slate-200')
+                    : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white font-medium'
                 }`}
               >
                 Sign In
@@ -752,8 +931,8 @@ export default function App() {
                 onClick={() => { setAuthMode('signup'); setAuthError(null); }}
                 className={`py-2 rounded-lg transition-all cursor-pointer ${
                   authMode === 'signup'
-                    ? (theme === 'dark' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-900 shadow-xs font-bold')
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    ? (theme === 'dark' ? 'bg-indigo-600 text-white font-bold' : 'bg-white text-slate-950 shadow-xs font-bold border border-slate-200')
+                    : 'text-slate-600 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white font-medium'
                 }`}
               >
                 Create Account
@@ -761,7 +940,7 @@ export default function App() {
             </div>
 
             {authError && (
-              <div className="p-3 mb-4 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-start space-x-2">
+              <div className="p-3 mb-4 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-200 flex items-start space-x-2">
                 <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                 <span>{authError}</span>
               </div>
@@ -770,7 +949,7 @@ export default function App() {
             {/* Form */}
             <form onSubmit={handleAuthSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
                   Email Address
                 </label>
                 <div className="relative">
@@ -791,7 +970,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
                   Password
                 </label>
                 <div className="relative">
@@ -813,7 +992,7 @@ export default function App() {
 
               {authMode === 'signup' && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
                     Select Account Role
                   </label>
                   <select
@@ -846,7 +1025,7 @@ export default function App() {
 
             {/* Quick Demo Credentials / Test Accounts */}
             <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800">
-              <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center mb-3">
+              <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider text-center mb-3">
                 1-Click Instant Preview (Demo Bypass)
               </p>
               <div className="grid grid-cols-2 gap-2">
@@ -856,14 +1035,14 @@ export default function App() {
                   className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
                     theme === 'dark'
                       ? 'bg-purple-950/40 border-purple-800/60 hover:bg-purple-900/60'
-                      : 'bg-purple-50/70 border-purple-200 hover:bg-purple-100'
+                      : 'bg-purple-50 border-purple-300 hover:bg-purple-100'
                   }`}
                 >
-                  <div className="text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center space-x-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5" />
+                  <div className="text-xs font-bold text-purple-900 dark:text-purple-300 flex items-center space-x-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
                     <span>Manager View</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                  <p className="text-[10px] text-slate-600 dark:text-slate-400 truncate mt-0.5 font-medium">
                     Full company scope
                   </p>
                 </button>
@@ -874,14 +1053,14 @@ export default function App() {
                   className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
                     theme === 'dark'
                       ? 'bg-emerald-950/40 border-emerald-800/60 hover:bg-emerald-900/60'
-                      : 'bg-emerald-50/70 border-emerald-200 hover:bg-emerald-100'
+                      : 'bg-emerald-50 border-emerald-300 hover:bg-emerald-100'
                   }`}
                 >
-                  <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center space-x-1.5">
-                    <User className="w-3.5 h-3.5" />
+                  <div className="text-xs font-bold text-emerald-900 dark:text-emerald-300 flex items-center space-x-1.5">
+                    <User className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Team Rep View</span>
                   </div>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                  <p className="text-[10px] text-slate-600 dark:text-slate-400 truncate mt-0.5 font-medium">
                     Assigned portfolio only
                   </p>
                 </button>
@@ -900,15 +1079,84 @@ export default function App() {
     <div className={`min-h-screen flex flex-col antialiased transition-colors ${
       theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
     }`}>
+      
+      {/* ==================================================================== */}
+      {/* CELEBRATION MODAL (Thumbs Up 👍 / Well Done! Animation) */}
+      {/* ==================================================================== */}
+      {celebrationData && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className={`relative max-w-sm w-full rounded-2xl border p-6 text-center shadow-2xl overflow-hidden transition-all transform scale-100 ${
+            theme === 'dark'
+              ? 'bg-slate-900 border-emerald-500/50 text-white shadow-emerald-950/50'
+              : 'bg-white border-emerald-300 text-slate-900 shadow-xl'
+          }`}>
+            
+            {/* Background glowing rings */}
+            <div className="absolute -top-16 -right-16 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute -bottom-16 -left-16 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+            
+            {/* Close button */}
+            <button
+              onClick={() => setCelebrationData(null)}
+              className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Thumbs Up Icon with animation */}
+            <div className="relative inline-flex items-center justify-center mb-3">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/80 border-2 border-emerald-500 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-lg shadow-emerald-500/20 animate-bounce">
+                <ThumbsUp className="w-8 h-8 fill-emerald-500/20 stroke-emerald-600 dark:stroke-emerald-400" />
+              </div>
+              <span className="absolute -top-1 -right-1 text-lg">🎉</span>
+              <span className="absolute -bottom-1 -left-1 text-lg">✨</span>
+            </div>
+
+            {/* Congratulatory Text */}
+            <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
+              Well Done! 👍
+            </h3>
+            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5 flex items-center justify-center space-x-1">
+              <CheckCircle className="w-3.5 h-3.5" />
+              <span>Payment Receipt Received & Confirmed</span>
+            </p>
+
+            <div className={`mt-3.5 p-3 rounded-xl border text-xs text-left ${
+              theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-300'
+            }`}>
+              <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium">
+                <span>Customer</span>
+                <span className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[170px]">
+                  {celebrationData.customerName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-1 text-slate-700 dark:text-slate-300 font-medium">
+                <span>Payment Cleared</span>
+                <span className="font-black text-emerald-700 dark:text-emerald-400 text-sm">
+                  {formatCurrency(celebrationData.amount)}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setCelebrationData(null)}
+              className="w-full mt-4 py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/25 transition-all cursor-pointer"
+            >
+              Awesome! Continue
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toastMessage && (
         <div
           className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-xl border text-xs font-semibold shadow-2xl flex items-center space-x-2 transition-all ${
             toastMessage.type === 'success'
-              ? (theme === 'dark' ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'bg-emerald-50 border-emerald-300 text-emerald-800')
+              ? (theme === 'dark' ? 'bg-emerald-950 border-emerald-700 text-emerald-200' : 'bg-emerald-50 border-emerald-300 text-emerald-950')
               : toastMessage.type === 'error'
-              ? (theme === 'dark' ? 'bg-rose-950 border-rose-700 text-rose-200' : 'bg-rose-50 border-rose-300 text-rose-800')
-              : (theme === 'dark' ? 'bg-indigo-950 border-indigo-700 text-indigo-200' : 'bg-indigo-50 border-indigo-300 text-indigo-800')
+              ? (theme === 'dark' ? 'bg-rose-950 border-rose-700 text-rose-200' : 'bg-rose-50 border-rose-300 text-rose-950')
+              : (theme === 'dark' ? 'bg-indigo-950 border-indigo-700 text-indigo-200' : 'bg-indigo-50 border-indigo-300 text-indigo-950')
           }`}
         >
           {toastMessage.type === 'success' ? (
@@ -963,14 +1211,107 @@ export default function App() {
                 <span className="sm:hidden">Add</span>
               </button>
 
+              {/* Manager Only: Realtime Online Team Members Badge & Popover */}
+              {isManager && (
+                <div className="relative">
+                  <button
+                    onClick={() => setIsPresenceOpen((prev) => !prev)}
+                    className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                      theme === 'dark'
+                        ? 'bg-slate-800 border-slate-700 text-slate-200 hover:border-emerald-500/60'
+                        : 'bg-emerald-50 border-emerald-300 text-emerald-950 hover:bg-emerald-100 shadow-xs'
+                    }`}
+                    title="Click to view live online team members"
+                  >
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <Users className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>
+                      <strong className="font-bold">{effectiveOnlineUsers.length}</strong> Online
+                    </span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${isPresenceOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {/* Dropdown Popover */}
+                  {isPresenceOpen && (
+                    <div className={`absolute right-0 mt-2 w-72 sm:w-80 rounded-2xl border p-4 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white shadow-slate-950/80' : 'bg-white border-slate-300 text-slate-900 shadow-xl'
+                    }`}>
+                      <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center space-x-2">
+                          <span className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                          </span>
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-950 dark:text-white">
+                            Active Team Members ({effectiveOnlineUsers.length})
+                          </h4>
+                        </div>
+                        <button
+                          onClick={() => setIsPresenceOpen(false)}
+                          className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="mt-2.5 space-y-2 max-h-60 overflow-y-auto">
+                        {effectiveOnlineUsers.map((u, idx) => {
+                          const isSelf = u.id === userProfile.id || u.email === userProfile.email;
+                          return (
+                            <div
+                              key={u.id || u.email || idx}
+                              className={`flex items-center justify-between p-2 rounded-xl border text-xs transition-colors ${
+                                theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2 min-w-0">
+                                <div className="relative shrink-0">
+                                  <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center font-bold text-[11px] text-indigo-700 dark:text-indigo-400">
+                                    {u.email ? u.email.charAt(0).toUpperCase() : 'U'}
+                                  </div>
+                                  <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white dark:border-slate-900"></span>
+                                </div>
+                                <div className="truncate">
+                                  <p className="font-bold truncate text-slate-900 dark:text-white">
+                                    {u.email}
+                                  </p>
+                                  <p className="text-[10px] text-slate-600 dark:text-slate-400">
+                                    {u.role === 'manager' ? 'Manager' : 'Team Member'} {isSelf && '• You'}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 shrink-0 ml-2 border border-emerald-300 dark:border-emerald-800">
+                                Active Now
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Realtime channel info footer */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-600 dark:text-slate-400">
+                        <span>Supabase Realtime Presence</span>
+                        <span className="text-emerald-700 dark:text-emerald-400 font-semibold flex items-center space-x-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                          <span>Channel: online-users</span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Theme Toggle (Light / Dark) */}
               <button
                 onClick={toggleTheme}
                 title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
-                className={`p-2 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
+                className={`p-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
                   theme === 'dark'
-                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-                    : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:text-white'
+                    : 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200 shadow-xs'
                 }`}
               >
                 {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
@@ -980,21 +1321,21 @@ export default function App() {
               <button
                 onClick={() => setIsPasswordModalOpen(true)}
                 title="Change Password"
-                className={`hidden md:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
+                className={`hidden md:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
                   theme === 'dark'
-                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
-                    : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:text-white'
+                    : 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200 shadow-xs'
                 }`}
               >
-                <Key className="w-3.5 h-3.5 text-slate-400" />
+                <Key className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 <span>Password</span>
               </button>
 
               {/* User Pill */}
-              <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-medium ${
-                theme === 'dark' ? 'bg-slate-800/90 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-800'
+              <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
+                theme === 'dark' ? 'bg-slate-800/90 border-slate-700 text-slate-100' : 'bg-slate-100 border-slate-300 text-slate-900'
               }`}>
-                <User className="w-3.5 h-3.5 text-indigo-500" />
+                <User className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                 <span className="max-w-[130px] truncate">{userProfile.email}</span>
               </div>
 
@@ -1004,8 +1345,8 @@ export default function App() {
                   const target = isManager ? DEMO_PROFILES[1] : DEMO_PROFILES[0];
                   handleQuickDemoLogin(target);
                 }}
-                className={`text-[11px] px-2.5 py-1.5 rounded-xl border transition-colors hidden lg:block cursor-pointer ${
-                  theme === 'dark' ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-700'
+                className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-colors hidden lg:block cursor-pointer ${
+                  theme === 'dark' ? 'border-slate-700 hover:bg-slate-800 text-slate-200' : 'border-slate-300 hover:bg-slate-100 text-slate-800 shadow-xs'
                 }`}
                 title="Switch demo role to verify RBAC rules instantly"
               >
@@ -1015,7 +1356,7 @@ export default function App() {
               {/* Logout Button */}
               <button
                 onClick={handleLogout}
-                className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                className="p-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                 title="Sign Out"
               >
                 <LogOut className="w-4 h-4" />
@@ -1029,8 +1370,8 @@ export default function App() {
       {/* Role Notice & Sub-bar */}
       <div className={`border-b px-4 py-2 text-xs transition-colors ${
         isManager
-          ? (theme === 'dark' ? 'bg-purple-950/40 border-purple-900/60 text-purple-300' : 'bg-purple-50 border-purple-200 text-purple-900')
-          : (theme === 'dark' ? 'bg-emerald-950/40 border-emerald-900/60 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-900')
+          ? (theme === 'dark' ? 'bg-purple-950/40 border-purple-900/60 text-purple-200' : 'bg-purple-50 border-purple-200 text-purple-950 font-medium')
+          : (theme === 'dark' ? 'bg-emerald-950/40 border-emerald-900/60 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-950 font-medium')
       }`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -1042,21 +1383,29 @@ export default function App() {
             <span>
               {isManager ? (
                 <>
-                  <strong>Manager Oversight Active:</strong> Viewing full company collections across all sales team members.
+                  <strong className="font-bold">Manager Oversight Active:</strong> Viewing full company collections across all sales team members.
                 </>
               ) : (
                 <>
-                  <strong>Team Member View:</strong> Showing only customer accounts assigned to <em>{userProfile.email}</em>.
+                  <strong className="font-bold">Team Member View:</strong> Showing only customer accounts assigned to <em>{userProfile.email}</em>.
                 </>
               )}
             </span>
           </div>
 
-          <div className="flex items-center space-x-2 text-[11px]">
-            <span className="text-slate-500 dark:text-slate-400">Database:</span>
-            <span className={`font-semibold ${isLiveSupabase ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-              {isLiveSupabase ? 'Supabase Live' : 'Local Seed Cache'}
-            </span>
+          <div className="flex items-center space-x-3 text-[11px]">
+            {isManager && (
+              <div className="hidden sm:flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>{effectiveOnlineUsers.length} Active Now</span>
+              </div>
+            )}
+            <div className="flex items-center space-x-1">
+              <span className="text-slate-600 dark:text-slate-400 font-medium">Database:</span>
+              <span className={`font-bold ${isLiveSupabase ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+                {isLiveSupabase ? 'Supabase Live' : 'Local Seed Cache'}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1065,54 +1414,94 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         
         {/* ==================================================================== */}
-        {/* KPI SUMMARY CARDS */}
+        {/* KPI SUMMARY CARDS (Clickable Grand Totals for Manager) */}
         {/* ==================================================================== */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           
           {/* Card 1: Total Expected */}
-          <div className={`p-5 rounded-2xl border transition-all ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-xs'
-          }`}>
+          <div
+            id="kpi-card-total-expected"
+            onClick={() => isManager && handleKpiCardClick('ALL')}
+            className={`p-5 rounded-2xl border transition-all ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
+            } ${
+              isManager ? 'cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md' : ''
+            }`}
+            title={isManager ? "Click to view all customer records" : undefined}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                 {isManager ? 'Grand Total Expected' : 'My Total Expected'}
               </span>
-              <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
+              <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">
                 <DollarSign className="w-5 h-5" />
               </div>
             </div>
             <div className="mt-3">
-              <div className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+              <div className="text-2xl sm:text-3xl font-black tracking-tight text-slate-950 dark:text-white">
                 {formatCurrency(totalExpected)}
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Across {filteredCustomers.length} active customer billing entries
-              </p>
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium">
+                <span>Across {filteredCustomers.length} active clients</span>
+                {isManager && selectedStatus === 'ALL' && (
+                  <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                    Showing All
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1 mt-3 overflow-hidden">
-              <div className="bg-indigo-600 h-1 rounded-full w-full" />
+            <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
+              <div className="bg-indigo-600 h-1.5 rounded-full w-full" />
             </div>
           </div>
 
-          {/* Card 2: Total Received Amount */}
-          <div className={`p-5 rounded-2xl border transition-all ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-xs'
-          }`}>
+          {/* Card 2: Total Received Amount (CLICKABLE IN MANAGER DASHBOARD) */}
+          <div
+            id="kpi-card-total-received"
+            onClick={() => isManager && handleKpiCardClick('received')}
+            className={`p-5 rounded-2xl border transition-all ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
+            } ${
+              isManager
+                ? 'cursor-pointer hover:border-emerald-500 dark:hover:border-emerald-500 hover:shadow-md active:scale-[0.99]'
+                : ''
+            } ${
+              isManager && selectedStatus === 'received'
+                ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/30'
+                : ''
+            }`}
+            title={isManager ? "Click to filter table to only cleared/received customers" : undefined}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                {isManager ? 'Grand Total Received' : 'My Total Received'}
-              </span>
-              <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider">
+                  {isManager ? 'Grand Total Received' : 'My Total Received'}
+                </span>
+                {isManager && (
+                  <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold px-1.5 py-0.2 rounded border border-emerald-300 dark:border-emerald-800/60">
+                    Filter ↗
+                  </span>
+                )}
+              </div>
+              <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
                 <CheckCircle className="w-5 h-5" />
               </div>
             </div>
             <div className="mt-3">
-              <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
+              <div className="text-2xl sm:text-3xl font-black tracking-tight text-emerald-700 dark:text-emerald-400">
                 {formatCurrency(totalReceived)}
               </div>
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">{recoveryPercent}% Collected</span>
-                <span>{filteredCustomers.filter(c => c.is_receipt).length} cleared receipts</span>
+              <div className="mt-1 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 font-medium">
+                <span className="font-bold text-emerald-800 dark:text-emerald-400">{recoveryPercent}% Collected</span>
+                <span>
+                  {isManager && selectedStatus === 'received' ? (
+                    <span className="text-emerald-800 dark:text-emerald-300 font-bold underline">
+                      Filter Active (Click to reset)
+                    </span>
+                  ) : (
+                    `${filteredCustomers.filter(c => c.is_receipt).length} cleared receipts`
+                  )}
+                </span>
               </div>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
@@ -1123,28 +1512,53 @@ export default function App() {
             </div>
           </div>
 
-          {/* Card 3: Total Balance Pending */}
-          <div className={`p-5 rounded-2xl border sm:col-span-2 lg:col-span-1 transition-all ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-xs'
-          }`}>
+          {/* Card 3: Total Balance Pending (CLICKABLE IN MANAGER DASHBOARD) */}
+          <div
+            id="kpi-card-total-balance"
+            onClick={() => isManager && handleKpiCardClick('pending')}
+            className={`p-5 rounded-2xl border sm:col-span-2 lg:col-span-1 transition-all ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
+            } ${
+              isManager
+                ? 'cursor-pointer hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md active:scale-[0.99]'
+                : ''
+            } ${
+              isManager && selectedStatus === 'pending'
+                ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/30 dark:bg-amber-950/30'
+                : ''
+            }`}
+            title={isManager ? "Click to filter table to only pending/unreceived balance customers" : undefined}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-                {isManager ? 'Grand Balance Pending' : 'My Balance Pending'}
-              </span>
-              <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-xs font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider">
+                  {isManager ? 'Grand Balance Pending' : 'My Balance Pending'}
+                </span>
+                {isManager && (
+                  <span className="text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-300 dark:border-amber-800/60">
+                    Filter ↗
+                  </span>
+                )}
+              </div>
+              <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
                 <Clock className="w-5 h-5" />
               </div>
             </div>
             <div className="mt-3">
-              <div className="text-2xl sm:text-3xl font-black tracking-tight text-amber-600 dark:text-amber-400">
+              <div className="text-2xl sm:text-3xl font-black tracking-tight text-amber-700 dark:text-amber-400">
                 {formatCurrency(totalBalance)}
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Awaiting payment clearance or invoice receipt
-              </p>
+              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium">
+                <span>Awaiting payment clearance</span>
+                {isManager && selectedStatus === 'pending' && (
+                  <span className="text-amber-800 dark:text-amber-300 font-bold underline">
+                    Filter Active (Click to reset)
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1 mt-3 overflow-hidden">
-              <div className="bg-amber-500 h-1 rounded-full w-full" />
+            <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
+              <div className="bg-amber-500 h-1.5 rounded-full w-full" />
             </div>
           </div>
 
@@ -1155,7 +1569,7 @@ export default function App() {
         {/* ==================================================================== */}
         {isManager && (
           <section className={`rounded-2xl border overflow-hidden transition-all ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-xs'
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
           }`}>
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center space-x-2.5">
@@ -1163,11 +1577,11 @@ export default function App() {
                   <Users className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-950 dark:text-white">
                     Team Performance Summary Table
                   </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Breakdown of Total Expected vs. Total Collected per team member
+                  <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+                    Breakdown of Total Expected vs. Total Collected across all members (including Manager)
                   </p>
                 </div>
               </div>
@@ -1175,7 +1589,7 @@ export default function App() {
               {selectedRep !== 'ALL' && (
                 <button
                   onClick={() => setSelectedRep('ALL')}
-                  className="text-xs text-purple-600 dark:text-purple-400 font-semibold px-2.5 py-1 rounded-lg border border-purple-300 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/60 transition-colors cursor-pointer"
+                  className="text-xs text-purple-700 dark:text-purple-300 font-bold px-2.5 py-1 rounded-lg border border-purple-300 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/60 transition-colors cursor-pointer"
                 >
                   Clear Rep Filter
                 </button>
@@ -1185,10 +1599,10 @@ export default function App() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs sm:text-sm">
                 <thead className={`border-b text-[11px] font-bold uppercase tracking-wider ${
-                  theme === 'dark' ? 'bg-slate-950 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'
+                  theme === 'dark' ? 'bg-slate-950 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-800 border-slate-300'
                 }`}>
                   <tr>
-                    <th className="py-3 px-4">Team Member</th>
+                    <th className="py-3 px-4">Member / Account</th>
                     <th className="py-3 px-4 text-center">Assigned Clients</th>
                     <th className="py-3 px-4 text-right">Total Expected</th>
                     <th className="py-3 px-4 text-right">Total Collected</th>
@@ -1197,9 +1611,13 @@ export default function App() {
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-slate-300' : 'divide-slate-200 text-slate-700'}`}>
+                <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-slate-200' : 'divide-slate-200 text-slate-800'}`}>
                   {teamBreakdown.map((rep) => {
                     const isFiltered = selectedRep === rep.id;
+                    const isManagerRow = rep.role === 'manager';
+                    const isCurrentUser = rep.id === userProfile.id;
+                    const isRepOnline = effectiveOnlineUsers.some((u) => u.id === rep.id || u.email === rep.email);
+
                     return (
                       <tr
                         key={rep.id}
@@ -1209,31 +1627,51 @@ export default function App() {
                             : (theme === 'dark' ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50')
                         }`}
                       >
-                        <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">
+                        <td className="py-3 px-4 font-bold text-slate-950 dark:text-white">
                           <div className="flex items-center space-x-2">
-                            <User className="w-4 h-4 text-slate-400" />
-                            <span>{rep.email}</span>
+                            {isManagerRow ? (
+                              <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0" />
+                            ) : (
+                              <User className="w-4 h-4 text-slate-500 shrink-0" />
+                            )}
+                            <span className="truncate max-w-[200px]">{rep.email}</span>
+                            {isRepOnline && (
+                              <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                                <span>Online</span>
+                              </span>
+                            )}
+                            {isManagerRow && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                                Manager {isCurrentUser ? '(You)' : ''}
+                              </span>
+                            )}
+                            {!isManagerRow && isCurrentUser && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+                                (You)
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            theme === 'dark' ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
+                            theme === 'dark' ? 'bg-slate-800 text-slate-200 border-slate-700' : 'bg-slate-100 text-slate-800 border-slate-300'
                           }`}>
                             {rep.count} clients
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-right font-medium">
+                        <td className="py-3 px-4 text-right font-bold text-slate-950 dark:text-white">
                           {formatCurrency(rep.expected)}
                         </td>
-                        <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                        <td className="py-3 px-4 text-right font-black text-emerald-700 dark:text-emerald-400">
                           {formatCurrency(rep.received)}
                         </td>
-                        <td className="py-3 px-4 text-right font-semibold text-amber-600 dark:text-amber-400">
+                        <td className="py-3 px-4 text-right font-black text-amber-800 dark:text-amber-400">
                           {formatCurrency(rep.balance)}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <div className="w-24 mx-auto">
-                            <span className="font-bold text-xs">{rep.percent}%</span>
+                            <span className="font-bold text-xs text-slate-900 dark:text-white">{rep.percent}%</span>
                             <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
                               <div
                                 className="bg-emerald-500 h-1.5 rounded-full"
@@ -1245,13 +1683,13 @@ export default function App() {
                         <td className="py-3 px-4 text-right">
                           <button
                             onClick={() => setSelectedRep(isFiltered ? 'ALL' : rep.id)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer border ${
                               isFiltered
-                                ? 'bg-purple-600 text-white'
-                                : (theme === 'dark' ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700')
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : (theme === 'dark' ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300')
                             }`}
                           >
-                            {isFiltered ? 'Viewing Rep' : 'Filter Ledger'}
+                            {isFiltered ? 'Viewing' : 'Filter Ledger'}
                           </button>
                         </td>
                       </tr>
@@ -1266,16 +1704,19 @@ export default function App() {
         {/* ==================================================================== */}
         {/* CUSTOMERS LEDGER & ACTION TOOLBAR */}
         {/* ==================================================================== */}
-        <section className={`rounded-2xl border p-4 sm:p-5 space-y-4 transition-all ${
-          theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-xs'
-        }`}>
+        <section
+          id="customer-ledger-section"
+          className={`rounded-2xl border p-4 sm:p-5 space-y-4 transition-all scroll-mt-20 ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
+          }`}
+        >
           
           {/* Action & Filter Bar */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             
             {/* Search Input */}
             <div className="relative flex-1 min-w-[220px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
@@ -1283,14 +1724,14 @@ export default function App() {
                 placeholder="Search client name or remarks..."
                 className={`w-full pl-9 pr-8 py-2 rounded-xl text-xs sm:text-sm border transition-colors ${
                   theme === 'dark'
-                    ? 'bg-slate-950 border-slate-800 text-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
-                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
+                    ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
+                    : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden'
                 }`}
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1300,15 +1741,15 @@ export default function App() {
             {/* Filter Dropdowns */}
             <div className="flex flex-wrap items-center gap-2">
               
-              {/* Category Filter */}
+              {/* Category Filter - Supported options: AMC, Solution, Outstanding, Customization */}
               <div className={`flex items-center space-x-1.5 border rounded-xl px-2.5 py-1.5 text-xs ${
-                theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-900 shadow-xs'
               }`}>
-                <Layers className="w-3.5 h-3.5 text-slate-400" />
+                <Layers className="w-3.5 h-3.5 text-slate-500" />
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="bg-transparent font-medium focus:outline-hidden cursor-pointer"
+                  className="bg-transparent font-semibold focus:outline-hidden cursor-pointer text-slate-900 dark:text-slate-200"
                 >
                   <option value="ALL" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                     All Categories
@@ -1322,18 +1763,21 @@ export default function App() {
                   <option value="Outstanding" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                     Outstanding
                   </option>
+                  <option value="Customization" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                    Customization
+                  </option>
                 </select>
               </div>
 
               {/* Status Filter */}
               <div className={`flex items-center space-x-1.5 border rounded-xl px-2.5 py-1.5 text-xs ${
-                theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-900 shadow-xs'
               }`}>
-                <Filter className="w-3.5 h-3.5 text-slate-400" />
+                <Filter className="w-3.5 h-3.5 text-slate-500" />
                 <select
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="bg-transparent font-medium focus:outline-hidden cursor-pointer"
+                  className="bg-transparent font-semibold focus:outline-hidden cursor-pointer text-slate-900 dark:text-slate-200"
                 >
                   <option value="ALL" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                     All Statuses
@@ -1352,37 +1796,35 @@ export default function App() {
                 <div className={`flex items-center space-x-1.5 border rounded-xl px-2.5 py-1.5 text-xs ${
                   theme === 'dark'
                     ? 'bg-purple-950/40 border-purple-800/80 text-purple-300'
-                    : 'bg-purple-50 border-purple-200 text-purple-800'
+                    : 'bg-purple-50 border-purple-300 text-purple-950 font-bold shadow-xs'
                 }`}>
-                  <User className="w-3.5 h-3.5 text-purple-500" />
+                  <User className="w-3.5 h-3.5 text-purple-600" />
                   <select
                     value={selectedRep}
                     onChange={(e) => setSelectedRep(e.target.value)}
-                    className="bg-transparent font-medium focus:outline-hidden cursor-pointer"
+                    className="bg-transparent font-bold focus:outline-hidden cursor-pointer text-purple-950 dark:text-purple-200"
                   >
                     <option value="ALL" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                       All Team Members
                     </option>
-                    {teamProfiles
-                      .filter((p) => p.role === 'team')
-                      .map((p) => (
-                        <option key={p.id} value={p.id} className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                          {p.email}
-                        </option>
-                      ))}
+                    {teamProfiles.map((p) => (
+                      <option key={p.id} value={p.id} className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                        {p.email} {p.role === 'manager' ? '(Manager)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
 
               {/* Month Filter */}
               <div className={`flex items-center space-x-1.5 border rounded-xl px-2.5 py-1.5 text-xs ${
-                theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-900 shadow-xs'
               }`}>
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <Calendar className="w-3.5 h-3.5 text-slate-500" />
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="bg-transparent font-medium focus:outline-hidden cursor-pointer"
+                  className="bg-transparent font-semibold focus:outline-hidden cursor-pointer text-slate-900 dark:text-slate-200"
                 >
                   <option value="ALL" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                     All Months
@@ -1402,14 +1844,14 @@ export default function App() {
               {/* Export CSV Button */}
               <button
                 onClick={exportCSV}
-                className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+                className={`inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
                   theme === 'dark'
-                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                    : 'bg-white hover:bg-slate-100 text-slate-800 border-slate-300 shadow-xs'
                 }`}
                 title="Export current table view to CSV file"
               >
-                <Download className="w-3.5 h-3.5 text-slate-400" />
+                <Download className="w-3.5 h-3.5 text-slate-500" />
                 <span>Export CSV</span>
               </button>
 
@@ -1417,11 +1859,26 @@ export default function App() {
 
           </div>
 
+          {/* Active Status Badge filter notification */}
+          {selectedStatus !== 'ALL' && (
+            <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-300 dark:border-indigo-800 text-xs">
+              <span className="text-indigo-950 dark:text-indigo-300 font-semibold">
+                Filtering by: <strong>{selectedStatus === 'received' ? 'Receipt Received (Cleared)' : 'Pending Balances'}</strong> ({filteredCustomers.length} records)
+              </span>
+              <button
+                onClick={() => setSelectedStatus('ALL')}
+                className="text-indigo-700 dark:text-indigo-300 hover:underline font-bold text-[11px] cursor-pointer"
+              >
+                Clear Filter (Show All)
+              </button>
+            </div>
+          )}
+
           {/* Customer Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-800">
             <table className="w-full text-left text-xs sm:text-sm">
               <thead className={`border-b text-[11px] font-bold uppercase tracking-wider ${
-                theme === 'dark' ? 'bg-slate-950 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'
+                theme === 'dark' ? 'bg-slate-950 text-slate-300 border-slate-800' : 'bg-slate-100 text-slate-800 border-slate-300'
               }`}>
                 <tr>
                   <th className="py-3 px-4">Customer Name</th>
@@ -1436,10 +1893,10 @@ export default function App() {
                   <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-slate-300' : 'divide-slate-200 text-slate-700'}`}>
+              <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-slate-200' : 'divide-slate-200 text-slate-800'}`}>
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={isManager ? 10 : 9} className="py-8 text-center text-slate-400 text-xs">
+                    <td colSpan={isManager ? 10 : 9} className="py-8 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
                       No customer payment records match your filters.
                     </td>
                   </tr>
@@ -1452,21 +1909,23 @@ export default function App() {
                         className={`transition-colors ${theme === 'dark' ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}`}
                       >
                         {/* Customer Name */}
-                        <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
+                        <td className="py-3 px-4 font-bold text-slate-950 dark:text-white">
                           <div className="flex items-center space-x-2">
-                            <Building className="w-4 h-4 text-indigo-500 shrink-0" />
+                            <Building className="w-4 h-4 text-indigo-600 shrink-0" />
                             <span>{c.customer_name}</span>
                           </div>
                         </td>
 
-                        {/* Category Badge */}
+                        {/* Category Badge (Supports AMC, Solution, Outstanding, Customization) */}
                         <td className="py-3 px-3">
                           <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
                             c.category === 'AMC'
-                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                              ? 'bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-900'
                               : c.category === 'Solution'
-                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              ? 'bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 dark:border-purple-900'
+                              : c.category === 'Customization'
+                              ? 'bg-teal-100 text-teal-900 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 dark:border-teal-900'
+                              : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-900'
                           }`}>
                             {c.category}
                           </span>
@@ -1474,31 +1933,31 @@ export default function App() {
 
                         {/* Assigned Rep (Manager Only) */}
                         {isManager && (
-                          <td className="py-3 px-3 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                          <td className="py-3 px-3 text-xs text-slate-800 dark:text-slate-300 font-semibold">
                             <div className="flex items-center space-x-1.5">
-                              <User className="w-3.5 h-3.5 text-slate-400" />
+                              <User className="w-3.5 h-3.5 text-slate-500" />
                               <span className="truncate max-w-[130px]">{getRepEmail(c.assigned_to)}</span>
                             </div>
                           </td>
                         )}
 
                         {/* Expected Amount */}
-                        <td className="py-3 px-3 text-right font-medium text-slate-900 dark:text-white">
+                        <td className="py-3 px-3 text-right font-bold text-slate-950 dark:text-white">
                           {formatCurrency(c.expected_amount)}
                         </td>
 
                         {/* Received Amount */}
-                        <td className="py-3 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                        <td className="py-3 px-3 text-right font-black text-emerald-700 dark:text-emerald-400">
                           {formatCurrency(c.received_amount)}
                         </td>
 
                         {/* Balance */}
-                        <td className="py-3 px-3 text-right font-bold text-amber-600 dark:text-amber-400">
+                        <td className="py-3 px-3 text-right font-black text-amber-800 dark:text-amber-400">
                           {formatCurrency(balance)}
                         </td>
 
                         {/* Expected Date */}
-                        <td className="py-3 px-3 text-center text-xs text-slate-500 dark:text-slate-400 font-mono">
+                        <td className="py-3 px-3 text-center text-xs text-slate-800 dark:text-slate-300 font-mono font-medium">
                           {c.expected_date}
                         </td>
 
@@ -1507,19 +1966,19 @@ export default function App() {
                           <button
                             onClick={() => handleToggleReceipt(c)}
                             title="Click to toggle Receipt status"
-                            className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors cursor-pointer ${
+                            className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer hover:scale-105 active:scale-95 ${
                               c.is_receipt
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800'
-                                : 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800 shadow-xs'
+                                : 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
                             }`}
                           >
-                            {c.is_receipt ? <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> : <Clock className="w-3 h-3 text-slate-400" />}
+                            {c.is_receipt ? <Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400" /> : <Clock className="w-3 h-3 text-slate-500" />}
                             <span>{c.is_receipt ? 'Receipt Received' : 'Not Received'}</span>
                           </button>
                         </td>
 
                         {/* Remarks */}
-                        <td className="py-3 px-4 text-xs text-slate-500 dark:text-slate-400 max-w-[180px] truncate" title={c.remarks}>
+                        <td className="py-3 px-4 text-xs text-slate-700 dark:text-slate-300 font-medium max-w-[180px] truncate" title={c.remarks}>
                           {c.remarks || '—'}
                         </td>
 
@@ -1528,14 +1987,14 @@ export default function App() {
                           <div className="flex items-center justify-end space-x-1">
                             <button
                               onClick={() => setEditCustomer(c)}
-                              className="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                               title="Edit amount, remarks, or receipt status"
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDeleteCustomer(c.id, c.customer_name)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                               title="Delete customer record"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1556,17 +2015,17 @@ export default function App() {
       {/* 9. MODALS: ADD CUSTOMER, EDIT RECORD, CHANGE PASSWORD */}
       {/* ==================================================================== */}
 
-      {/* MODAL 1: ADD NEW CUSTOMER */}
+      {/* MODAL 1: ADD NEW CUSTOMER (Includes "Customization" option) */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
           <div className={`max-w-lg w-full rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
           }`}>
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-              <h3 className="font-bold text-base">
-                {isManager ? 'Add New Client & Assign Sales Rep' : 'Add New Customer Account'}
+              <h3 className="font-bold text-base text-slate-950 dark:text-white">
+                {isManager ? 'Add New Client & Assign Member' : 'Add New Customer Account'}
               </h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1589,43 +2048,44 @@ export default function App() {
               className="space-y-3.5 text-xs"
             >
               <div>
-                <label className="block font-semibold mb-1">Customer / Organization Name</label>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Customer / Organization Name</label>
                 <input
                   name="customer_name"
                   type="text"
                   required
                   placeholder="e.g. Acme Industrial Technologies"
                   className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500'
                   }`}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Category Type</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Category Type</label>
                   <select
                     name="category"
                     defaultValue="AMC"
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   >
                     <option value="AMC">AMC</option>
                     <option value="Solution">Solution</option>
                     <option value="Outstanding">Outstanding</option>
+                    <option value="Customization">Customization</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-semibold mb-1">Expected Payment Date</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Expected Payment Date</label>
                   <input
                     name="expected_date"
                     type="date"
                     required
                     defaultValue={new Date().toISOString().slice(0, 10)}
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   />
                 </div>
@@ -1633,7 +2093,7 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Total Expected Amount (₹)</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Total Expected Amount (₹)</label>
                   <input
                     name="expected_amount"
                     type="number"
@@ -1641,55 +2101,53 @@ export default function App() {
                     required
                     placeholder="150000"
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500'
                     }`}
                   />
                 </div>
 
                 <div>
-                  <label className="block font-semibold mb-1">Initial Received Amount (₹)</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Initial Received Amount (₹)</label>
                   <input
                     name="received_amount"
                     type="number"
                     min="0"
                     defaultValue="0"
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   />
                 </div>
               </div>
 
-              {/* Manager: Rep Assignment Dropdown */}
+              {/* Manager: Member Assignment Dropdown (Includes All Profiles & Manager) */}
               {isManager && (
                 <div>
-                  <label className="block font-semibold mb-1">Assign To Sales Team Member</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Assign To Team Member / Account</label>
                   <select
                     name="assigned_to"
-                    defaultValue={teamProfiles.find(p => p.role === 'team')?.id || userProfile.id}
+                    defaultValue={userProfile.id}
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   >
-                    {teamProfiles
-                      .filter(p => p.role === 'team')
-                      .map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.email}
-                        </option>
-                      ))}
+                    {teamProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.email} {p.role === 'manager' ? '(Manager)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
 
               <div>
-                <label className="block font-semibold mb-1">Remarks & Notes</label>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Remarks & Notes</label>
                 <textarea
                   name="remarks"
                   rows={2}
                   placeholder="e.g. Cheque due on 15th, awaiting client director approval"
                   className={`w-full px-3 py-2 rounded-xl border text-xs ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-500'
                   }`}
                 />
               </div>
@@ -1699,10 +2157,10 @@ export default function App() {
                   name="is_receipt"
                   type="checkbox"
                   id="add_receipt_status"
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                 />
-                <label htmlFor="add_receipt_status" className="font-semibold cursor-pointer">
-                  Payment Receipt already received and verified
+                <label htmlFor="add_receipt_status" className="font-semibold text-slate-900 dark:text-slate-100 cursor-pointer">
+                  Payment Receipt already received and verified (Triggers Thumbs Up celebration)
                 </label>
               </div>
 
@@ -1710,15 +2168,15 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className={`px-3 py-2 rounded-xl font-semibold border ${
-                    theme === 'dark' ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                  className={`px-3 py-2 rounded-xl font-bold border cursor-pointer ${
+                    theme === 'dark' ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-800 hover:bg-slate-100'
                   }`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-xs"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-xs cursor-pointer"
                 >
                   Create Customer Record
                 </button>
@@ -1728,18 +2186,18 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: EDIT CUSTOMER / IN-LINE UPDATER */}
+      {/* MODAL 2: EDIT CUSTOMER / IN-LINE UPDATER (Includes "Customization" option) */}
       {editCustomer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
           <div className={`max-w-lg w-full rounded-2xl border p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
           }`}>
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
-                <h3 className="font-bold text-base">Update Payment Record</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{editCustomer.customer_name}</p>
+                <h3 className="font-bold text-base text-slate-950 dark:text-white">Update Payment Record</h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">{editCustomer.customer_name}</p>
               </div>
-              <button onClick={() => setEditCustomer(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+              <button onClick={() => setEditCustomer(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1762,43 +2220,44 @@ export default function App() {
               className="space-y-3.5 text-xs"
             >
               <div>
-                <label className="block font-semibold mb-1">Customer Name</label>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Customer Name</label>
                 <input
                   name="customer_name"
                   type="text"
                   required
                   defaultValue={editCustomer.customer_name}
                   className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                   }`}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Category</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Category</label>
                   <select
                     name="category"
                     defaultValue={editCustomer.category}
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   >
                     <option value="AMC">AMC</option>
                     <option value="Solution">Solution</option>
                     <option value="Outstanding">Outstanding</option>
+                    <option value="Customization">Customization</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-semibold mb-1">Expected Date</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Expected Date</label>
                   <input
                     name="expected_date"
                     type="date"
                     required
                     defaultValue={editCustomer.expected_date}
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   />
                 </div>
@@ -1806,7 +2265,7 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Expected Amount (₹)</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Expected Amount (₹)</label>
                   <input
                     name="expected_amount"
                     type="number"
@@ -1815,14 +2274,14 @@ export default function App() {
                     id="edit_expected_amount"
                     defaultValue={editCustomer.expected_amount}
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   />
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="font-semibold">Received Amount (₹)</label>
+                    <label className="font-bold text-slate-900 dark:text-slate-100">Received Amount (₹)</label>
                     <button
                       type="button"
                       onClick={() => {
@@ -1836,7 +2295,7 @@ export default function App() {
                           chk.checked = true;
                         }
                       }}
-                      className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline"
+                      className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
                     >
                       100% Paid
                     </button>
@@ -1848,42 +2307,40 @@ export default function App() {
                     id="edit_received_amount"
                     defaultValue={editCustomer.received_amount}
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   />
                 </div>
               </div>
 
-              {/* Manager: Reassign Dropdown */}
+              {/* Manager: Reassign Dropdown (Includes All Profiles & Manager) */}
               {isManager && (
                 <div>
-                  <label className="block font-semibold mb-1">Assigned Sales Representative</label>
+                  <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Assigned Representative / Account</label>
                   <select
                     name="assigned_to"
                     defaultValue={editCustomer.assigned_to}
                     className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                     }`}
                   >
-                    {teamProfiles
-                      .filter(p => p.role === 'team')
-                      .map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.email}
-                        </option>
-                      ))}
+                    {teamProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.email} {p.role === 'manager' ? '(Manager)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
 
               <div>
-                <label className="block font-semibold mb-1">Remarks & Status Notes</label>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Remarks & Status Notes</label>
                 <textarea
                   name="remarks"
                   rows={2}
                   defaultValue={editCustomer.remarks}
                   className={`w-full px-3 py-2 rounded-xl border text-xs ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                   }`}
                 />
               </div>
@@ -1894,10 +2351,10 @@ export default function App() {
                   type="checkbox"
                   id="edit_is_receipt"
                   defaultChecked={editCustomer.is_receipt}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                 />
-                <label htmlFor="edit_is_receipt" className="font-semibold cursor-pointer">
-                  Receipt Received (Funds Confirmed)
+                <label htmlFor="edit_is_receipt" className="font-semibold text-slate-900 dark:text-slate-100 cursor-pointer">
+                  Receipt Received (Funds Confirmed) 👍
                 </label>
               </div>
 
@@ -1905,15 +2362,15 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setEditCustomer(null)}
-                  className={`px-3 py-2 rounded-xl font-semibold border ${
-                    theme === 'dark' ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                  className={`px-3 py-2 rounded-xl font-bold border cursor-pointer ${
+                    theme === 'dark' ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-800 hover:bg-slate-100'
                   }`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl shadow-xs"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-xs cursor-pointer"
                 >
                   Save Changes
                 </button>
@@ -1927,14 +2384,14 @@ export default function App() {
       {isPasswordModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
           <div className={`max-w-md w-full rounded-2xl border p-6 shadow-2xl space-y-4 ${
-            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
           }`}>
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
-                <Key className="w-4 h-4 text-indigo-500" />
-                <h3 className="font-bold text-base">Change Password</h3>
+                <Key className="w-4 h-4 text-indigo-600" />
+                <h3 className="font-bold text-base text-slate-950 dark:text-white">Change Password</h3>
               </div>
-              <button onClick={() => setIsPasswordModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+              <button onClick={() => setIsPasswordModalOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1958,27 +2415,27 @@ export default function App() {
               className="space-y-3.5 text-xs"
             >
               <div>
-                <label className="block font-semibold mb-1">New Password</label>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">New Password</label>
                 <input
                   name="new_password"
                   type="password"
                   required
                   placeholder="••••••••"
                   className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-400'
                   }`}
                 />
               </div>
 
               <div>
-                <label className="block font-semibold mb-1">Confirm New Password</label>
+                <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">Confirm New Password</label>
                 <input
                   name="confirm_password"
                   type="password"
                   required
                   placeholder="••••••••"
                   className={`w-full px-3 py-2 rounded-xl border text-xs sm:text-sm ${
-                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder:text-slate-500' : 'bg-white border-slate-300 text-slate-950 placeholder:text-slate-400'
                   }`}
                 />
               </div>
@@ -1987,15 +2444,15 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setIsPasswordModalOpen(false)}
-                  className={`px-3 py-2 rounded-xl font-semibold border ${
-                    theme === 'dark' ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                  className={`px-3 py-2 rounded-xl font-bold border cursor-pointer ${
+                    theme === 'dark' ? 'border-slate-800 text-slate-200 hover:bg-slate-800' : 'border-slate-300 text-slate-800 hover:bg-slate-100'
                   }`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl shadow-xs"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-xs cursor-pointer"
                 >
                   Update Password
                 </button>
