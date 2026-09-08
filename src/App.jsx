@@ -593,15 +593,39 @@ export default function App() {
 
     try {
       if (isLiveSupabase) {
-        await supabase
+        const togglePayload = {
+          is_receipt: nextReceipt,
+          received_amount: nextRec,
+          remarks: nextRemarks,
+        };
+
+        if (nextRec > 0 && nextReceiptDate) {
+          togglePayload.receipt_date = nextReceiptDate;
+        } else {
+          togglePayload.receipt_date = null;
+        }
+
+        let { error: updateErr } = await supabase
           .from('customers')
-          .update({
-            is_receipt: nextReceipt,
-            received_amount: nextRec,
-            receipt_date: nextReceiptDate,
-            remarks: nextRemarks,
-          })
+          .update(togglePayload)
           .eq('id', customer.id);
+
+        // Schema cache fallback: if receipt_date is not recognized by Supabase schema cache
+        if (updateErr && (
+          updateErr.message?.toLowerCase().includes('receipt_date') ||
+          updateErr.code === 'PGRST204' ||
+          updateErr.message?.toLowerCase().includes('schema cache')
+        )) {
+          console.warn('Supabase schema cache fallback on toggle: updating without receipt_date column');
+          const { receipt_date, ...fallbackTogglePayload } = togglePayload;
+          const { error: retryErr } = await supabase
+            .from('customers')
+            .update(fallbackTogglePayload)
+            .eq('id', customer.id);
+          if (retryErr) throw retryErr;
+        } else if (updateErr) {
+          throw updateErr;
+        }
       }
 
       const updated = customers.map((c) =>
@@ -644,7 +668,7 @@ export default function App() {
 
       if (totalRec > 0) {
         if (!calculatedReceiptDate) {
-          if (totalRec === totalExp && recordData.expected_date) {
+          if (totalExp > 0 && totalRec === totalExp && recordData.expected_date) {
             calculatedReceiptDate = recordData.expected_date;
           } else {
             calculatedReceiptDate = todayStr;
@@ -654,65 +678,143 @@ export default function App() {
         calculatedReceiptDate = null;
       }
 
-      const isReceiptFlag = totalRec === totalExp && totalExp > 0;
+      const isReceiptFlag = totalExp > 0 && totalRec === totalExp;
 
-      const payload = {
-        customer_name: recordData.customer_name,
+      // Base sanitized database payload
+      const dbPayload = {
+        customer_name: (recordData.customer_name || '').trim(),
         category: recordData.category,
         expected_amount: totalExp,
         received_amount: totalRec,
         expected_date: recordData.expected_date,
-        receipt_date: calculatedReceiptDate,
         is_receipt: isReceiptFlag,
         remarks: recordData.remarks || '',
-        assigned_to: assignedToId,
       };
+
+      if (assignedToId) {
+        dbPayload.assigned_to = assignedToId;
+      }
+
+      // Conditional Receipt Date Logic:
+      // 1. When adding a NEW customer (Add & Assign Client modal):
+      //    Do NOT send receipt_date if received_amount is 0 or empty.
+      //    Only send/update receipt_date when a valid payment is recorded (received_amount > 0).
+      // 2. When editing an existing customer:
+      //    Send valid date if received_amount > 0, otherwise set receipt_date: null.
+      if (totalRec > 0 && calculatedReceiptDate) {
+        dbPayload.receipt_date = calculatedReceiptDate;
+      } else if (isEditing) {
+        dbPayload.receipt_date = null;
+      }
+
+      // Sanitize payload to exclude any undefined values
+      Object.keys(dbPayload).forEach((key) => {
+        if (dbPayload[key] === undefined) {
+          delete dbPayload[key];
+        }
+      });
 
       if (isEditing) {
         if (isLiveSupabase) {
-          await supabase
+          let { error: updateErr } = await supabase
             .from('customers')
-            .update(payload)
+            .update(dbPayload)
             .eq('id', editCustomer.id);
+
+          // Schema cache fallback: if receipt_date doesn't exist in Supabase schema cache, retry cleanly without it
+          if (updateErr && (
+            updateErr.message?.toLowerCase().includes('receipt_date') ||
+            updateErr.code === 'PGRST204' ||
+            updateErr.message?.toLowerCase().includes('schema cache')
+          )) {
+            console.warn('Supabase schema cache fallback on update: retrying without receipt_date');
+            const { receipt_date, ...fallbackUpdatePayload } = dbPayload;
+            const { error: retryErr } = await supabase
+              .from('customers')
+              .update(fallbackUpdatePayload)
+              .eq('id', editCustomer.id);
+            if (retryErr) throw retryErr;
+          } else if (updateErr) {
+            throw updateErr;
+          }
         }
+
+        const localCustomer = {
+          ...editCustomer,
+          ...dbPayload,
+          receipt_date: calculatedReceiptDate,
+        };
         const updated = customers.map((c) =>
-          c.id === editCustomer.id ? { ...c, ...payload } : c
+          c.id === editCustomer.id ? localCustomer : c
         );
         updateLocalCustomers(updated);
 
-        if (payload.is_receipt && !editCustomer.is_receipt) {
-          triggerCelebration(payload.customer_name, payload.received_amount);
+        if (isReceiptFlag && !editCustomer.is_receipt) {
+          triggerCelebration(dbPayload.customer_name, dbPayload.received_amount);
         }
 
         setEditCustomer(null);
-        showToast(`Customer "${payload.customer_name}" updated successfully!`, 'success');
+        showToast(`Customer "${dbPayload.customer_name}" updated successfully!`, 'success');
       } else {
+        // NEW CUSTOMER REGISTRATION
         if (isLiveSupabase) {
-          const { data, error } = await supabase
+          const insertPayload = {
+            ...dbPayload,
+            created_at: new Date().toISOString(),
+          };
+
+          // Explicit safety: For new customer, ensure receipt_date is NOT sent if received_amount <= 0 or empty
+          if (totalRec <= 0 || !insertPayload.receipt_date) {
+            delete insertPayload.receipt_date;
+          }
+
+          let { data, error } = await supabase
             .from('customers')
-            .insert({ ...payload, created_at: new Date().toISOString() })
+            .insert(insertPayload)
             .select()
             .single();
 
+          // Schema cache fallback: if insert failed due to receipt_date column missing in Supabase schema cache
+          if (error && (
+            error.message?.toLowerCase().includes('receipt_date') ||
+            error.code === 'PGRST204' ||
+            error.message?.toLowerCase().includes('schema cache')
+          )) {
+            console.warn('Supabase schema cache fallback on insert: retrying without receipt_date');
+            const { receipt_date, ...fallbackInsertPayload } = insertPayload;
+            const retryRes = await supabase
+              .from('customers')
+              .insert(fallbackInsertPayload)
+              .select()
+              .single();
+            data = retryRes.data;
+            error = retryRes.error;
+          }
+
           if (error) throw error;
           if (data) {
-            updateLocalCustomers([data, ...customers]);
+            const newRecord = {
+              ...data,
+              receipt_date: data.receipt_date !== undefined ? data.receipt_date : calculatedReceiptDate,
+            };
+            updateLocalCustomers([newRecord, ...customers]);
           }
         } else {
           const localNew = {
-            ...payload,
+            ...dbPayload,
+            receipt_date: calculatedReceiptDate,
             id: Date.now(),
             created_at: new Date().toISOString(),
           };
           updateLocalCustomers([localNew, ...customers]);
         }
 
-        if (payload.is_receipt) {
-          triggerCelebration(payload.customer_name, payload.received_amount);
+        if (isReceiptFlag) {
+          triggerCelebration(dbPayload.customer_name, dbPayload.received_amount);
         }
 
         setIsAddModalOpen(false);
-        showToast(`New client "${payload.customer_name}" registered!`, 'success');
+        showToast(`New client "${dbPayload.customer_name}" registered!`, 'success');
       }
     } catch (err) {
       showToast(`Action failed: ${err.message}`, 'error');
