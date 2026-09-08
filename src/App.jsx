@@ -49,6 +49,7 @@ import {
   formatEmailPrefix,
   getDisplayName,
   getPaymentStatus,
+  cleanAmount,
 } from './constants';
 
 import TeamChatModal from './components/TeamChatModal';
@@ -454,12 +455,27 @@ export default function App() {
         .order('expected_date', { ascending: true });
 
       if (customerData && customerData.length > 0) {
-        setCustomers(customerData);
+        const cleaned = customerData.map((c) => ({
+          ...c,
+          expected_amount: cleanAmount(c.expected_amount),
+          received_amount: cleanAmount(c.received_amount),
+        }));
+        setCustomers(cleaned);
         setIsLiveSupabase(true);
       } else {
         const localSaved = localStorage.getItem('fincollect_customers_cache');
         if (localSaved) {
-          setCustomers(JSON.parse(localSaved));
+          try {
+            const parsed = JSON.parse(localSaved);
+            const cleaned = parsed.map((c) => ({
+              ...c,
+              expected_amount: cleanAmount(c.expected_amount),
+              received_amount: cleanAmount(c.received_amount),
+            }));
+            setCustomers(cleaned);
+          } catch {
+            setCustomers(INITIAL_CUSTOMERS);
+          }
         } else {
           setCustomers(INITIAL_CUSTOMERS);
           localStorage.setItem('fincollect_customers_cache', JSON.stringify(INITIAL_CUSTOMERS));
@@ -575,8 +591,8 @@ export default function App() {
   // CUSTOMER RECORD ACTIONS & AUTOMATIONS
   // ============================================================================
   const handleToggleReceipt = async (customer) => {
-    const totalExp = Number(customer.expected_amount) || 0;
-    const currentRec = Number(customer.received_amount) || 0;
+    const totalExp = cleanAmount(customer.expected_amount);
+    const currentRec = cleanAmount(customer.received_amount);
     const isFullyPaid = currentRec >= totalExp && totalExp > 0;
     const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -633,6 +649,7 @@ export default function App() {
           ? {
               ...c,
               is_receipt: nextReceipt,
+              expected_amount: totalExp,
               received_amount: nextRec,
               receipt_date: nextReceiptDate,
               remarks: nextRemarks,
@@ -661,8 +678,8 @@ export default function App() {
           ? recordData.assigned_to
           : userProfile?.id;
 
-      const totalExp = Number(recordData.expected_amount) || 0;
-      const totalRec = Number(recordData.received_amount) || 0;
+      const totalExp = cleanAmount(recordData.expected_amount);
+      const totalRec = cleanAmount(recordData.received_amount);
       const todayStr = new Date().toISOString().slice(0, 10);
       let calculatedReceiptDate = recordData.receipt_date || null;
 
@@ -742,6 +759,8 @@ export default function App() {
         const localCustomer = {
           ...editCustomer,
           ...dbPayload,
+          expected_amount: totalExp,
+          received_amount: totalRec,
           receipt_date: calculatedReceiptDate,
         };
         const updated = customers.map((c) =>
@@ -795,6 +814,8 @@ export default function App() {
           if (data) {
             const newRecord = {
               ...data,
+              expected_amount: totalExp,
+              received_amount: totalRec,
               receipt_date: data.receipt_date !== undefined ? data.receipt_date : calculatedReceiptDate,
             };
             updateLocalCustomers([newRecord, ...customers]);
@@ -802,6 +823,8 @@ export default function App() {
         } else {
           const localNew = {
             ...dbPayload,
+            expected_amount: totalExp,
+            received_amount: totalRec,
             receipt_date: calculatedReceiptDate,
             id: Date.now(),
             created_at: new Date().toISOString(),
@@ -867,19 +890,19 @@ export default function App() {
 
     if (selectedStatus === 'received') {
       list = list.filter((c) => {
-        const exp = Number(c.expected_amount) || 0;
-        const rec = Number(c.received_amount) || 0;
+        const exp = cleanAmount(c.expected_amount);
+        const rec = cleanAmount(c.received_amount);
         return rec >= exp && exp > 0;
       });
     } else if (selectedStatus === 'partial') {
       list = list.filter((c) => {
-        const exp = Number(c.expected_amount) || 0;
-        const rec = Number(c.received_amount) || 0;
+        const exp = cleanAmount(c.expected_amount);
+        const rec = cleanAmount(c.received_amount);
         return rec > 0 && rec < exp;
       });
     } else if (selectedStatus === 'pending') {
       list = list.filter((c) => {
-        const rec = Number(c.received_amount) || 0;
+        const rec = cleanAmount(c.received_amount);
         return rec === 0;
       });
     }
@@ -900,15 +923,17 @@ export default function App() {
   }, [roleScopedCustomers, searchQuery, selectedCategory, selectedStatus, selectedRep, selectedMonth, selectedDateFilter, isManager]);
 
   const totalExpected = useMemo(() => {
-    return filteredCustomers.reduce((acc, c) => acc + (Number(c.expected_amount) || 0), 0);
+    const sum = filteredCustomers.reduce((acc, c) => acc + cleanAmount(c.expected_amount), 0);
+    return Math.round(sum * 100) / 100;
   }, [filteredCustomers]);
 
   const totalReceived = useMemo(() => {
-    return filteredCustomers.reduce((acc, c) => acc + (Number(c.received_amount) || 0), 0);
+    const sum = filteredCustomers.reduce((acc, c) => acc + cleanAmount(c.received_amount), 0);
+    return Math.round(sum * 100) / 100;
   }, [filteredCustomers]);
 
   const totalBalance = useMemo(() => {
-    return Math.max(0, totalExpected - totalReceived);
+    return Math.max(0, Math.round((totalExpected - totalReceived) * 100) / 100);
   }, [totalExpected, totalReceived]);
 
   const recoveryPercent = totalExpected > 0 ? Math.round((totalReceived / totalExpected) * 100) : 0;
@@ -956,8 +981,8 @@ export default function App() {
     customers.forEach((c) => {
       const rep = repMap.get(c.assigned_to);
       if (rep) {
-        rep.expected += Number(c.expected_amount) || 0;
-        rep.received += Number(c.received_amount) || 0;
+        rep.expected = Math.round((rep.expected + cleanAmount(c.expected_amount)) * 100) / 100;
+        rep.received = Math.round((rep.received + cleanAmount(c.received_amount)) * 100) / 100;
         rep.count += 1;
       }
     });
@@ -968,9 +993,9 @@ export default function App() {
       full_name: data.full_name,
       role: data.role,
       count: data.count,
-      expected: data.expected,
-      received: data.received,
-      balance: Math.max(0, data.expected - data.received),
+      expected: Math.round(data.expected),
+      received: Math.round(data.received),
+      balance: Math.max(0, Math.round((data.expected - data.received) * 100) / 100),
       percent: data.expected > 0 ? Math.round((data.received / data.expected) * 100) : 0,
     }));
   }, [customers, teamProfiles, isManager]);
@@ -998,13 +1023,16 @@ export default function App() {
       'Assigned Rep',
     ];
     const rows = filteredCustomers.map((c) => {
-      const statusInfo = getPaymentStatus(c.expected_amount, c.received_amount);
+      const exp = cleanAmount(c.expected_amount);
+      const rec = cleanAmount(c.received_amount);
+      const bal = Math.max(0, Math.round((exp - rec) * 100) / 100);
+      const statusInfo = getPaymentStatus(exp, rec);
       return [
         `"${(c.customer_name || '').replace(/"/g, '""')}"`,
         c.category,
-        c.expected_amount,
-        c.received_amount,
-        Math.max(0, Number(c.expected_amount) - Number(c.received_amount)),
+        exp,
+        rec,
+        bal,
         c.expected_date,
         c.receipt_date || 'N/A',
         statusInfo.label,
@@ -2055,9 +2083,9 @@ export default function App() {
                   </tr>
                 ) : (
                   filteredCustomers.map((customer) => {
-                    const expected = Number(customer.expected_amount) || 0;
-                    const received = Number(customer.received_amount) || 0;
-                    const balance = Math.max(0, expected - received);
+                    const expected = cleanAmount(customer.expected_amount);
+                    const received = cleanAmount(customer.received_amount);
+                    const balance = Math.max(0, Math.round((expected - received) * 100) / 100);
                     const statusInfo = getPaymentStatus(expected, received);
                     const isDark = theme === 'dark';
 

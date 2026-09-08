@@ -30,7 +30,7 @@ import {
   Legend,
   Cell
 } from 'recharts';
-import { formatCurrency, getCategoryBadgeStyle, getDisplayName } from '../constants';
+import { formatCurrency, getCategoryBadgeStyle, getDisplayName, cleanAmount } from '../constants';
 
 export default function DateBreakdownWidget({
   customers = [],
@@ -66,13 +66,13 @@ export default function DateBreakdownWidget({
         };
       }
 
-      const exp = Number(c.expected_amount) || 0;
-      const rec = Number(c.received_amount) || 0;
-      const bal = Math.max(0, exp - rec);
+      const exp = cleanAmount(c.expected_amount);
+      const rec = cleanAmount(c.received_amount);
+      const bal = Math.max(0, cleanAmount(exp - rec));
 
-      map[dateKey].expected += exp;
-      map[dateKey].received += rec;
-      map[dateKey].balance += bal;
+      map[dateKey].expected = Math.round((map[dateKey].expected + exp) * 100) / 100;
+      map[dateKey].received = Math.round((map[dateKey].received + rec) * 100) / 100;
+      map[dateKey].balance = Math.max(0, Math.round((map[dateKey].expected - map[dateKey].received) * 100) / 100);
       map[dateKey].count += 1;
       map[dateKey].clients.push(c);
 
@@ -149,9 +149,9 @@ export default function DateBreakdownWidget({
 
   const totalScheduledDates = dateGroups.length;
   const overdueDatesCount = dateGroups.filter((g) => g.statusTag === 'overdue').length;
-  const totalBalanceDue = dateGroups.reduce((acc, g) => acc + g.balance, 0);
-  const totalExpectedAmount = dateGroups.reduce((acc, g) => acc + g.expected, 0);
-  const totalCollectedAmount = dateGroups.reduce((acc, g) => acc + g.received, 0);
+  const totalBalanceDue = Math.round(dateGroups.reduce((acc, g) => acc + g.balance, 0) * 100) / 100;
+  const totalExpectedAmount = Math.round(dateGroups.reduce((acc, g) => acc + g.expected, 0) * 100) / 100;
+  const totalCollectedAmount = Math.round(dateGroups.reduce((acc, g) => acc + g.received, 0) * 100) / 100;
 
   // Helper date formatter for table and headers
   const formatDateLabel = (dateStr) => {

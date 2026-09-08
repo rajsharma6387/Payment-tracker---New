@@ -165,30 +165,55 @@ export const INITIAL_CUSTOMERS = [
   },
 ];
 
-export const getPaymentStatus = (receivedAmount, expectedAmount) => {
-  const rec = Number(receivedAmount) || 0;
-  const exp = Number(expectedAmount) || 0;
+export const cleanAmount = (val) => {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') {
+    if (isNaN(val)) return 0;
+    return Math.round(val * 100) / 100;
+  }
+  const cleanStr = String(val).replace(/,/g, '').trim();
+  const num = Number(cleanStr);
+  if (isNaN(num)) return 0;
+  return Math.round(num * 100) / 100;
+};
 
-  if (rec === 0) {
+export const getPaymentStatus = (arg1, arg2) => {
+  let exp = 0;
+  let rec = 0;
+  if (typeof arg1 === 'object' && arg1 !== null) {
+    exp = cleanAmount(arg1.expected_amount);
+    rec = cleanAmount(arg1.received_amount);
+  } else {
+    exp = cleanAmount(arg1);
+    rec = cleanAmount(arg2);
+  }
+
+  if (rec >= exp && exp > 0) {
     return {
-      type: 'pending',
-      label: 'Pending',
-      color: 'amber',
+      status: 'received',
+      type: 'received',
+      label: 'Receipt Received',
+      color: 'emerald',
+      badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800',
     };
   }
 
   if (rec > 0 && rec < exp) {
     return {
+      status: 'partial',
       type: 'partial',
       label: 'Partially Received',
       color: 'blue',
+      badgeClass: 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/70 dark:text-blue-300 dark:border-blue-800',
     };
   }
 
   return {
-    type: 'received',
-    label: 'Receipt Received',
-    color: 'emerald',
+    status: 'pending',
+    type: 'pending',
+    label: 'Pending',
+    color: 'amber',
+    badgeClass: 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800',
   };
 };
 
@@ -219,12 +244,9 @@ export const getDisplayName = (profileOrEmail) => {
 };
 
 export const formatCurrency = (amount) => {
-  const num = Number(amount) || 0;
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(num);
+  const num = cleanAmount(amount);
+  const rounded = Math.round(num);
+  return '₹' + rounded.toLocaleString('en-IN');
 };
 
 export const getCategoryBadgeStyle = (category, isDark = false) => {

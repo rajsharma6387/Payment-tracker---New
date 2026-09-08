@@ -12,7 +12,7 @@ import {
   ThumbsUp,
   Sparkles
 } from 'lucide-react';
-import { CATEGORIES, formatCurrency, getDisplayName } from '../constants';
+import { CATEGORIES, formatCurrency, getDisplayName, cleanAmount } from '../constants';
 
 export default function CustomerRecordModal({
   isOpen,
@@ -42,8 +42,8 @@ export default function CustomerRecordModal({
     if (initialData) {
       setCustomerName(initialData.customer_name || '');
       setCategory(initialData.category || 'AMC');
-      setExpectedAmount(initialData.expected_amount != null ? String(initialData.expected_amount) : '');
-      setReceivedAmount(initialData.received_amount != null ? String(initialData.received_amount) : '0');
+      setExpectedAmount(initialData.expected_amount != null ? String(cleanAmount(initialData.expected_amount)) : '');
+      setReceivedAmount(initialData.received_amount != null ? String(cleanAmount(initialData.received_amount)) : '0');
       setExpectedDate(initialData.expected_date || new Date().toISOString().slice(0, 10));
       setReceiptDate(initialData.receipt_date || '');
       setIsReceipt(Boolean(initialData.is_receipt));
@@ -63,8 +63,8 @@ export default function CustomerRecordModal({
     setValidationError(null);
   }, [initialData, isOpen, currentUserId]);
 
-  const numExpected = Number(expectedAmount) || 0;
-  const numReceived = Number(receivedAmount) || 0;
+  const numExpected = cleanAmount(expectedAmount);
+  const numReceived = cleanAmount(receivedAmount);
 
   // Validation: Received Amount cannot exceed Expected Amount
   const isExceeding = numReceived > numExpected;
@@ -72,8 +72,8 @@ export default function CustomerRecordModal({
   // Automation handler: When Received Amount changes
   const handleReceivedAmountChange = (val) => {
     setReceivedAmount(val);
-    const parsedRec = Number(val) || 0;
-    const parsedExp = Number(expectedAmount) || 0;
+    const parsedRec = cleanAmount(val);
+    const parsedExp = cleanAmount(expectedAmount);
     const todayStr = new Date().toISOString().slice(0, 10);
 
     if (parsedRec > parsedExp) {
@@ -107,8 +107,8 @@ export default function CustomerRecordModal({
   // When Expected Amount changes, check if received exceeds it
   const handleExpectedAmountChange = (val) => {
     setExpectedAmount(val);
-    const parsedExp = Number(val) || 0;
-    const parsedRec = Number(receivedAmount) || 0;
+    const parsedExp = cleanAmount(val);
+    const parsedRec = cleanAmount(receivedAmount);
     const todayStr = new Date().toISOString().slice(0, 10);
 
     if (parsedRec > parsedExp) {
@@ -145,15 +145,18 @@ export default function CustomerRecordModal({
   const handleSubmit = (e) => {
     e.preventDefault();
 
+    const cleanExpected = cleanAmount(expectedAmount);
+    const cleanReceived = cleanAmount(receivedAmount);
+
     // 1. Mandatory Field: Expected Amount must be provided and > 0
-    if (!expectedAmount || numExpected <= 0) {
+    if (!expectedAmount || cleanExpected <= 0) {
       setValidationError('Expected Payment Amount is a required mandatory field and must be greater than zero.');
       return;
     }
 
     // 2. Validation Rule: Prevent received_amount > expected_amount
-    if (numReceived > numExpected) {
-      setValidationError(`Validation Error: Received Amount (${formatCurrency(numReceived)}) cannot exceed Expected Payment Amount (${formatCurrency(numExpected)}).`);
+    if (cleanReceived > cleanExpected) {
+      setValidationError(`Validation Error: Received Amount (${formatCurrency(cleanReceived)}) cannot exceed Expected Payment Amount (${formatCurrency(cleanExpected)}).`);
       return;
     }
 
@@ -172,15 +175,15 @@ export default function CustomerRecordModal({
     let finalRemarks = remarks;
     let finalReceipt = isReceipt;
 
-    if (numReceived > 0) {
+    if (cleanReceived > 0) {
       if (!finalReceiptDate) {
-        if (numReceived === numExpected && expectedDate) {
+        if (cleanReceived === cleanExpected && expectedDate) {
           finalReceiptDate = expectedDate;
         } else {
           finalReceiptDate = todayStr;
         }
       }
-      if (numReceived === numExpected && numExpected > 0) {
+      if (cleanReceived === cleanExpected && cleanExpected > 0) {
         finalReceipt = true;
         if (!finalRemarks || finalRemarks.trim() === '') {
           finalRemarks = 'Received successfully';
@@ -194,8 +197,8 @@ export default function CustomerRecordModal({
     onSave({
       customer_name: customerName.trim(),
       category,
-      expected_amount: numExpected,
-      received_amount: numReceived,
+      expected_amount: cleanExpected,
+      received_amount: cleanReceived,
       expected_date: expectedDate,
       receipt_date: finalReceiptDate,
       is_receipt: finalReceipt,
@@ -390,11 +393,11 @@ export default function CustomerRecordModal({
           }`}>
             <span className="text-slate-600 dark:text-slate-400 font-medium">Calculated Balance Pending:</span>
             <span className={`font-black text-sm ${
-              numExpected - numReceived === 0 && numExpected > 0
+              cleanAmount(numExpected - numReceived) === 0 && numExpected > 0
                 ? 'text-emerald-600 dark:text-emerald-400'
                 : 'text-amber-800 dark:text-amber-400'
             }`}>
-              {formatCurrency(Math.max(0, numExpected - numReceived))}
+              {formatCurrency(Math.max(0, cleanAmount(numExpected - numReceived)))}
             </span>
           </div>
 
