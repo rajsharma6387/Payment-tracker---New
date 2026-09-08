@@ -28,6 +28,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 185000,
     received_amount: 185000,
     expected_date: "2026-09-15",
+    receipt_date: "2026-09-15",
     is_receipt: true,
     remarks: "Received successfully",
     assigned_to: "22222222-2222-4222-8222-222222222222",
@@ -40,6 +41,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 320000,
     received_amount: 120000,
     expected_date: "2026-09-20",
+    receipt_date: "2026-09-06",
     is_receipt: false,
     remarks: "Phase 1 ERP deployment milestone. Balance due next week.",
     assigned_to: "22222222-2222-4222-8222-222222222222",
@@ -52,6 +54,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 95000,
     received_amount: 0,
     expected_date: "2026-08-28",
+    receipt_date: null,
     is_receipt: false,
     remarks: "Overdue Q2 billing. Sent formal notice to finance desk.",
     assigned_to: "22222222-2222-4222-8222-222222222222",
@@ -64,6 +67,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 240000,
     received_amount: 240000,
     expected_date: "2026-09-12",
+    receipt_date: "2026-09-12",
     is_receipt: true,
     remarks: "Received successfully",
     assigned_to: "33333333-3333-4333-8333-333333333333",
@@ -76,6 +80,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 140000,
     received_amount: 50000,
     expected_date: "2026-09-25",
+    receipt_date: "2026-09-04",
     is_receipt: false,
     remarks: "Custom barcode inventory plugin & billing slip tailoring.",
     assigned_to: "33333333-3333-4333-8333-333333333333",
@@ -88,6 +93,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 75000,
     received_amount: 75000,
     expected_date: "2026-09-15",
+    receipt_date: "2026-09-15",
     is_receipt: true,
     remarks: "Received successfully",
     assigned_to: "33333333-3333-4333-8333-333333333333",
@@ -100,6 +106,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 115000,
     received_amount: 0,
     expected_date: "2026-09-02",
+    receipt_date: null,
     is_receipt: false,
     remarks: "Audit clearance pending from client finance desk.",
     assigned_to: "44444444-4444-4444-8444-444444444444",
@@ -112,6 +119,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 450000,
     received_amount: 225000,
     expected_date: "2026-09-28",
+    receipt_date: "2026-09-07",
     is_receipt: false,
     remarks: "50% milestone advance credited. Final 50% on UAT signoff.",
     assigned_to: "44444444-4444-4444-8444-444444444444",
@@ -124,6 +132,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 48000,
     received_amount: 24000,
     expected_date: "2026-09-18",
+    receipt_date: "2026-09-05",
     is_receipt: false,
     remarks: "Tally Software Services annual renewal - part payment received.",
     assigned_to: "44444444-4444-4444-8444-444444444444",
@@ -136,6 +145,7 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 60000,
     received_amount: 0,
     expected_date: "2026-09-30",
+    receipt_date: null,
     is_receipt: false,
     remarks: "Third-party connector and hardware license integration fee.",
     assigned_to: "44444444-4444-4444-8444-444444444444",
@@ -148,11 +158,39 @@ export const INITIAL_CUSTOMERS = [
     expected_amount: 275000,
     received_amount: 275000,
     expected_date: "2026-09-18",
+    receipt_date: "2026-09-18",
     is_receipt: true,
     remarks: "Received successfully",
     assigned_to: "11111111-1111-4111-8111-111111111111", // Manager assignment
   },
 ];
+
+export const getPaymentStatus = (receivedAmount, expectedAmount) => {
+  const rec = Number(receivedAmount) || 0;
+  const exp = Number(expectedAmount) || 0;
+
+  if (rec === 0) {
+    return {
+      type: 'pending',
+      label: 'Pending',
+      color: 'amber',
+    };
+  }
+
+  if (rec > 0 && rec < exp) {
+    return {
+      type: 'partial',
+      label: 'Partially Received',
+      color: 'blue',
+    };
+  }
+
+  return {
+    type: 'received',
+    label: 'Receipt Received',
+    color: 'emerald',
+  };
+};
 
 export const formatEmailPrefix = (email) => {
   if (!email || typeof email !== 'string') return '';

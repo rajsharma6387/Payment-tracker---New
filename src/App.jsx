@@ -48,11 +48,13 @@ import {
   getCategoryBadgeStyle,
   formatEmailPrefix,
   getDisplayName,
+  getPaymentStatus,
 } from './constants';
 
 import TeamChatModal from './components/TeamChatModal';
 import DateBreakdownWidget from './components/DateBreakdownWidget';
 import CustomerRecordModal from './components/CustomerRecordModal';
+import ManageTeamProfilesModal from './components/ManageTeamProfilesModal';
 
 // ============================================================================
 // 1. SUPABASE CLIENT CONFIGURATION
@@ -103,6 +105,7 @@ export default function App() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [isManageTeamModalOpen, setIsManageTeamModalOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -198,27 +201,39 @@ export default function App() {
         .eq('id', userId)
         .single();
 
+      // Retrieve any locally persisted name cache to avoid regression
+      const cachedTeamStr = localStorage.getItem('fincollect_team_profiles');
+      const cachedTeam = cachedTeamStr ? JSON.parse(cachedTeamStr) : [];
+      const foundInCache = cachedTeam.find((t) => t.id === userId);
+
       if (data) {
-        setUserProfile(data);
+        const finalProfile = {
+          ...data,
+          full_name: data.full_name || foundInCache?.full_name || null,
+        };
+        setUserProfile(finalProfile);
         setIsLiveSupabase(true);
       } else {
         const newProfile = {
           id: userId,
           email: email,
           role: 'team', // All self-registered users are assigned 'team' by default
-          full_name: null,
+          full_name: foundInCache?.full_name || null,
         };
         const { error: insertErr } = await supabase.from('profiles').insert(newProfile);
         if (!insertErr) {
           setUserProfile(newProfile);
           setIsLiveSupabase(true);
         } else {
-          setUserProfile({ id: userId, email, role: 'team', full_name: null });
+          setUserProfile(newProfile);
         }
       }
     } catch (err) {
       console.warn('Profile lookup note:', err);
-      setUserProfile({ id: userId, email, role: 'team', full_name: null });
+      const cachedTeamStr = localStorage.getItem('fincollect_team_profiles');
+      const cachedTeam = cachedTeamStr ? JSON.parse(cachedTeamStr) : [];
+      const foundInCache = cachedTeam.find((t) => t.id === userId);
+      setUserProfile({ id: userId, email, role: 'team', full_name: foundInCache?.full_name || null });
     }
   };
 
@@ -276,12 +291,22 @@ export default function App() {
 
     try {
       if (isLiveSupabase) {
-        const { error } = await supabase
+        const { error: upsertErr } = await supabase
           .from('profiles')
-          .update({ full_name: trimmed || null })
-          .eq('id', userProfile.id);
+          .upsert({
+            id: userProfile.id,
+            email: userProfile.email,
+            role: userProfile.role,
+            full_name: trimmed || null,
+          });
 
-        if (error) throw error;
+        if (upsertErr) {
+          const { error: updateErr } = await supabase
+            .from('profiles')
+            .update({ full_name: trimmed || null })
+            .eq('id', userProfile.id);
+          if (updateErr) throw updateErr;
+        }
       }
 
       const updatedProfile = {
@@ -290,9 +315,13 @@ export default function App() {
       };
 
       setUserProfile(updatedProfile);
-      setTeamProfiles((prev) =>
-        prev.map((p) => (p.id === userProfile.id ? { ...p, full_name: trimmed || null } : p))
-      );
+      setTeamProfiles((prev) => {
+        const nextList = prev.map((p) =>
+          p.id === userProfile.id ? { ...p, full_name: trimmed || null } : p
+        );
+        localStorage.setItem('fincollect_team_profiles', JSON.stringify(nextList));
+        return nextList;
+      });
 
       // Re-track presence so active colleagues see updated display name
       const channel = supabase.channel('online-users');
@@ -315,6 +344,50 @@ export default function App() {
       showToast(err.message || 'Failed to update profile.', 'error');
     } finally {
       setProfileSaving(false);
+    }
+  };
+
+  // Manager: Update any team member's full display name in Supabase profiles
+  const handleManagerUpdateTeamMemberName = async (memberId, newFullName) => {
+    const trimmed = (newFullName || '').trim();
+    const targetMember = teamProfiles.find((p) => p.id === memberId);
+
+    try {
+      if (isLiveSupabase) {
+        const { error: upsertErr } = await supabase
+          .from('profiles')
+          .upsert({
+            id: memberId,
+            email: targetMember?.email || '',
+            role: targetMember?.role || 'team',
+            full_name: trimmed || null,
+          });
+
+        if (upsertErr) {
+          const { error: updateErr } = await supabase
+            .from('profiles')
+            .update({ full_name: trimmed || null })
+            .eq('id', memberId);
+          if (updateErr) throw updateErr;
+        }
+      }
+
+      const updatedList = teamProfiles.map((p) =>
+        p.id === memberId ? { ...p, full_name: trimmed || null } : p
+      );
+      setTeamProfiles(updatedList);
+      localStorage.setItem('fincollect_team_profiles', JSON.stringify(updatedList));
+
+      if (userProfile?.id === memberId) {
+        const updatedSelf = { ...userProfile, full_name: trimmed || null };
+        setUserProfile(updatedSelf);
+      }
+
+      showToast(`Profile name for ${targetMember?.email || 'member'} updated to "${trimmed || 'Default'}"!`, 'success');
+    } catch (err) {
+      console.error('Update team profile name error:', err);
+      showToast(`Failed to update profile name: ${err.message}`, 'error');
+      throw err;
     }
   };
 
@@ -352,10 +425,27 @@ export default function App() {
 
     try {
       const { data: profilesData } = await supabase.from('profiles').select('*');
+      const cachedTeamStr = localStorage.getItem('fincollect_team_profiles');
+      const cachedTeam = cachedTeamStr ? JSON.parse(cachedTeamStr) : [];
+
       if (profilesData && profilesData.length > 0) {
-        setTeamProfiles(profilesData);
+        const merged = profilesData.map((p) => {
+          const found = cachedTeam.find((c) => c.id === p.id);
+          return {
+            ...p,
+            full_name: p.full_name || found?.full_name || null,
+          };
+        });
+        setTeamProfiles(merged);
+        localStorage.setItem('fincollect_team_profiles', JSON.stringify(merged));
+
+        // If active user's profile is in the list, refresh full_name if missing
+        const currentInProfiles = merged.find((p) => p.id === userProfile.id);
+        if (currentInProfiles && currentInProfiles.full_name && !userProfile.full_name) {
+          setUserProfile((prev) => ({ ...prev, full_name: currentInProfiles.full_name }));
+        }
       } else {
-        setTeamProfiles(DEMO_PROFILES);
+        setTeamProfiles(cachedTeam.length > 0 ? cachedTeam : DEMO_PROFILES);
       }
 
       const { data: customerData } = await supabase
@@ -485,12 +575,18 @@ export default function App() {
   // CUSTOMER RECORD ACTIONS & AUTOMATIONS
   // ============================================================================
   const handleToggleReceipt = async (customer) => {
-    const nextReceipt = !customer.is_receipt;
     const totalExp = Number(customer.expected_amount) || 0;
     const currentRec = Number(customer.received_amount) || 0;
-    
-    // When marking receipt as received, auto-fill received amount to match expected invoice
-    const nextRec = nextReceipt && currentRec < totalExp ? totalExp : customer.received_amount;
+    const isFullyPaid = currentRec >= totalExp && totalExp > 0;
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // If fully received, toggle back to pending (0)
+    // If pending (0) or partially received, mark as fully received
+    const nextReceipt = !isFullyPaid;
+    const nextRec = nextReceipt ? totalExp : 0;
+    const nextReceiptDate = nextReceipt
+      ? (customer.receipt_date || customer.expected_date || todayStr)
+      : null;
     const nextRemarks = nextReceipt && (currentRec === 0 || !customer.remarks)
       ? "Received successfully"
       : customer.remarks;
@@ -502,6 +598,7 @@ export default function App() {
           .update({
             is_receipt: nextReceipt,
             received_amount: nextRec,
+            receipt_date: nextReceiptDate,
             remarks: nextRemarks,
           })
           .eq('id', customer.id);
@@ -509,7 +606,13 @@ export default function App() {
 
       const updated = customers.map((c) =>
         c.id === customer.id
-          ? { ...c, is_receipt: nextReceipt, received_amount: nextRec, remarks: nextRemarks }
+          ? {
+              ...c,
+              is_receipt: nextReceipt,
+              received_amount: nextRec,
+              receipt_date: nextReceiptDate,
+              remarks: nextRemarks,
+            }
           : c
       );
       updateLocalCustomers(updated);
@@ -534,13 +637,33 @@ export default function App() {
           ? recordData.assigned_to
           : userProfile?.id;
 
+      const totalExp = Number(recordData.expected_amount) || 0;
+      const totalRec = Number(recordData.received_amount) || 0;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      let calculatedReceiptDate = recordData.receipt_date || null;
+
+      if (totalRec > 0) {
+        if (!calculatedReceiptDate) {
+          if (totalRec === totalExp && recordData.expected_date) {
+            calculatedReceiptDate = recordData.expected_date;
+          } else {
+            calculatedReceiptDate = todayStr;
+          }
+        }
+      } else {
+        calculatedReceiptDate = null;
+      }
+
+      const isReceiptFlag = totalRec === totalExp && totalExp > 0;
+
       const payload = {
         customer_name: recordData.customer_name,
         category: recordData.category,
-        expected_amount: Number(recordData.expected_amount) || 0,
-        received_amount: Number(recordData.received_amount) || 0,
+        expected_amount: totalExp,
+        received_amount: totalRec,
         expected_date: recordData.expected_date,
-        is_receipt: Boolean(recordData.is_receipt),
+        receipt_date: calculatedReceiptDate,
+        is_receipt: isReceiptFlag,
         remarks: recordData.remarks || '',
         assigned_to: assignedToId,
       };
@@ -641,9 +764,22 @@ export default function App() {
     }
 
     if (selectedStatus === 'received') {
-      list = list.filter((c) => c.is_receipt);
+      list = list.filter((c) => {
+        const exp = Number(c.expected_amount) || 0;
+        const rec = Number(c.received_amount) || 0;
+        return rec >= exp && exp > 0;
+      });
+    } else if (selectedStatus === 'partial') {
+      list = list.filter((c) => {
+        const exp = Number(c.expected_amount) || 0;
+        const rec = Number(c.received_amount) || 0;
+        return rec > 0 && rec < exp;
+      });
     } else if (selectedStatus === 'pending') {
-      list = list.filter((c) => !c.is_receipt);
+      list = list.filter((c) => {
+        const rec = Number(c.received_amount) || 0;
+        return rec === 0;
+      });
     }
 
     if (isManager && selectedRep !== 'ALL') {
@@ -747,18 +883,33 @@ export default function App() {
   };
 
   const exportCSV = () => {
-    const headers = ['Customer Name', 'Category', 'Expected Amount', 'Received Amount', 'Balance', 'Expected Date', 'Status', 'Remarks', 'Assigned Rep'];
-    const rows = filteredCustomers.map((c) => [
-      `"${(c.customer_name || '').replace(/"/g, '""')}"`,
-      c.category,
-      c.expected_amount,
-      c.received_amount,
-      Math.max(0, Number(c.expected_amount) - Number(c.received_amount)),
-      c.expected_date,
-      c.is_receipt ? 'Receipt Received' : 'Not Received',
-      `"${(c.remarks || '').replace(/"/g, '""')}"`,
-      getRepEmail(c.assigned_to),
-    ]);
+    const headers = [
+      'Customer Name',
+      'Category',
+      'Expected Amount',
+      'Received Amount',
+      'Balance',
+      'Expected Date',
+      'Receipt Date',
+      'Payment Status',
+      'Remarks',
+      'Assigned Rep',
+    ];
+    const rows = filteredCustomers.map((c) => {
+      const statusInfo = getPaymentStatus(c.expected_amount, c.received_amount);
+      return [
+        `"${(c.customer_name || '').replace(/"/g, '""')}"`,
+        c.category,
+        c.expected_amount,
+        c.received_amount,
+        Math.max(0, Number(c.expected_amount) - Number(c.received_amount)),
+        c.expected_date,
+        c.receipt_date || 'N/A',
+        statusInfo.label,
+        `"${(c.remarks || '').replace(/"/g, '""')}"`,
+        `"${getRepDisplayName(c.assigned_to)}"`,
+      ];
+    });
 
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1217,6 +1368,22 @@ export default function App() {
                 <span>Edit Profile</span>
               </button>
 
+              {/* Manager: Manage Team Profiles Trigger */}
+              {isManager && (
+                <button
+                  onClick={() => setIsManageTeamModalOpen(true)}
+                  title="Manage Team Display Names in Supabase"
+                  className={`hidden sm:inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                    theme === 'dark'
+                      ? 'bg-purple-950/60 border-purple-800 text-purple-300 hover:bg-purple-900/70 hover:text-white'
+                      : 'bg-purple-50 border-purple-200 text-purple-950 hover:bg-purple-100 shadow-xs'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  <span>Team Profiles</span>
+                </button>
+              )}
+
               {/* Change Password Modal Trigger */}
               <button
                 onClick={() => setIsPasswordModalOpen(true)}
@@ -1439,7 +1606,7 @@ export default function App() {
           <section className={`rounded-2xl border overflow-hidden transition-all ${
             theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-300 shadow-xs'
           }`}>
-            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 rounded-xl bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800/60">
                   <Users className="w-5 h-5" />
@@ -1454,14 +1621,24 @@ export default function App() {
                 </div>
               </div>
 
-              {selectedRep !== 'ALL' && (
+              <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => setSelectedRep('ALL')}
-                  className="text-xs text-purple-700 dark:text-purple-300 font-bold px-2.5 py-1 rounded-lg border border-purple-300 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/60 transition-colors cursor-pointer"
+                  onClick={() => setIsManageTeamModalOpen(true)}
+                  className="text-xs text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 font-bold px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                  title="Manager tool to set or edit clean display names for all team accounts in Supabase"
                 >
-                  Clear Rep Filter
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Manage Team Profiles</span>
                 </button>
-              )}
+                {selectedRep !== 'ALL' && (
+                  <button
+                    onClick={() => setSelectedRep('ALL')}
+                    className="text-xs text-purple-700 dark:text-purple-300 font-bold px-2.5 py-1.5 rounded-xl border border-purple-300 dark:border-purple-800 hover:bg-purple-50 dark:hover:bg-purple-950/60 transition-colors cursor-pointer"
+                  >
+                    Clear Rep Filter
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1672,8 +1849,11 @@ export default function App() {
                   <option value="received" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
                     Receipt Received
                   </option>
+                  <option value="partial" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
+                    Partially Received
+                  </option>
                   <option value="pending" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                    Not Received (Pending)
+                    Pending
                   </option>
                 </select>
               </div>
@@ -1694,7 +1874,7 @@ export default function App() {
                     </option>
                     {teamProfiles.map((p) => (
                       <option key={p.id} value={p.id} className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>
-                        {getDisplayName(p)} ({p.email}) {p.role === 'manager' ? '• Manager' : ''}
+                        {getDisplayName(p)} {p.role === 'manager' ? '(Manager)' : ''}
                       </option>
                     ))}
                   </select>
@@ -1744,6 +1924,7 @@ export default function App() {
                   <th className="py-3 px-4 text-right">Received</th>
                   <th className="py-3 px-4 text-right">Balance</th>
                   <th className="py-3 px-3 text-center">Expected Date</th>
+                  <th className="py-3 px-3 text-center">Receipt Date</th>
                   <th className="py-3 px-3 text-center">Receipt Status</th>
                   <th className="py-3 px-4">Remarks & Notes</th>
                   {isManager && <th className="py-3 px-3">Assigned Rep</th>}
@@ -1753,7 +1934,7 @@ export default function App() {
               <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-slate-200' : 'divide-slate-200 text-slate-800'}`}>
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={isManager ? 10 : 9} className="py-8 text-center text-slate-500">
+                    <td colSpan={isManager ? 11 : 10} className="py-8 text-center text-slate-500">
                       <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
                       <p className="font-bold text-slate-800 dark:text-slate-300">No customer records match your filter criteria.</p>
                       <button
@@ -1775,14 +1956,17 @@ export default function App() {
                     const expected = Number(customer.expected_amount) || 0;
                     const received = Number(customer.received_amount) || 0;
                     const balance = Math.max(0, expected - received);
+                    const statusInfo = getPaymentStatus(expected, received);
                     const isDark = theme === 'dark';
 
                     return (
                       <tr
                         key={customer.id}
                         className={`transition-colors ${
-                          customer.is_receipt
+                          statusInfo.status === 'received'
                             ? (isDark ? 'hover:bg-emerald-950/20' : 'hover:bg-emerald-50/50')
+                            : statusInfo.status === 'partial'
+                            ? (isDark ? 'hover:bg-blue-950/20' : 'hover:bg-blue-50/50')
                             : (isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/80')
                         }`}
                       >
@@ -1824,28 +2008,39 @@ export default function App() {
                           </div>
                         </td>
 
-                        {/* Receipt Status Toggle Button */}
+                        {/* Dedicated Receipt Date Column */}
+                        <td className="py-3 px-3 text-center whitespace-nowrap text-xs font-medium text-slate-700 dark:text-slate-300">
+                          {customer.receipt_date ? (
+                            <div className="flex items-center justify-center space-x-1 font-semibold text-emerald-700 dark:text-emerald-400">
+                              <Calendar className="w-3 h-3 text-emerald-500" />
+                              <span>{customer.receipt_date}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic">—</span>
+                          )}
+                        </td>
+
+                        {/* Receipt Status Toggle Button & Badges (Pending / Partial / Received) */}
                         <td className="py-3 px-3 text-center whitespace-nowrap">
                           <button
                             onClick={() => handleToggleReceipt(customer)}
-                            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer border ${
-                              customer.is_receipt
-                                ? 'bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-200'
-                                : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-amber-100 dark:hover:bg-amber-950/60 hover:text-amber-900 hover:border-amber-300'
-                            }`}
-                            title="Click to toggle Receipt Confirmation and celebrate"
+                            className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer border ${statusInfo.badgeClass} hover:opacity-85 shadow-2xs`}
+                            title={
+                              statusInfo.status === 'received'
+                                ? "Receipt Received (Click to reset to Pending)"
+                                : statusInfo.status === 'partial'
+                                ? `Partially Received (${formatCurrency(received)} of ${formatCurrency(expected)}). Click to mark fully received.`
+                                : "Pending (Click to mark fully received)"
+                            }
                           >
-                            {customer.is_receipt ? (
-                              <>
-                                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Receipt Received</span>
-                              </>
+                            {statusInfo.status === 'received' ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            ) : statusInfo.status === 'partial' ? (
+                              <AlertCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                             ) : (
-                              <>
-                                <Clock className="w-3.5 h-3.5 text-amber-500" />
-                                <span>Pending</span>
-                              </>
+                              <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                             )}
+                            <span>{statusInfo.label}</span>
                           </button>
                         </td>
 
@@ -1854,14 +2049,11 @@ export default function App() {
                           {customer.remarks || <span className="text-slate-400 italic">None</span>}
                         </td>
 
-                        {/* Manager: Assigned Rep */}
+                        {/* Manager: Assigned Rep (Clean display name only, no email subtext) */}
                         {isManager && (
                           <td className="py-3 px-3 text-xs text-slate-700 dark:text-slate-300 truncate max-w-[150px]">
                             <div className="font-bold text-slate-900 dark:text-white truncate">
                               {getRepDisplayName(customer.assigned_to)}
-                            </div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-normal">
-                              {getRepEmail(customer.assigned_to)}
                             </div>
                           </td>
                         )}
@@ -2174,6 +2366,16 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* MODAL: MANAGER TEAM PROFILE NAMES MANAGEMENT */}
+      <ManageTeamProfilesModal
+        isOpen={isManageTeamModalOpen}
+        onClose={() => setIsManageTeamModalOpen(false)}
+        teamProfiles={teamProfiles}
+        onSaveMemberName={handleManagerUpdateTeamMemberName}
+        currentUserId={userProfile?.id}
+        theme={theme}
+      />
 
     </div>
   );

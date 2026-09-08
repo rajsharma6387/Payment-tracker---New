@@ -31,6 +31,7 @@ export default function CustomerRecordModal({
   const [expectedAmount, setExpectedAmount] = useState('');
   const [receivedAmount, setReceivedAmount] = useState('0');
   const [expectedDate, setExpectedDate] = useState('');
+  const [receiptDate, setReceiptDate] = useState('');
   const [isReceipt, setIsReceipt] = useState(false);
   const [remarks, setRemarks] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
@@ -44,6 +45,7 @@ export default function CustomerRecordModal({
       setExpectedAmount(initialData.expected_amount != null ? String(initialData.expected_amount) : '');
       setReceivedAmount(initialData.received_amount != null ? String(initialData.received_amount) : '0');
       setExpectedDate(initialData.expected_date || new Date().toISOString().slice(0, 10));
+      setReceiptDate(initialData.receipt_date || '');
       setIsReceipt(Boolean(initialData.is_receipt));
       setRemarks(initialData.remarks || '');
       setAssignedTo(initialData.assigned_to || currentUserId || '');
@@ -53,6 +55,7 @@ export default function CustomerRecordModal({
       setExpectedAmount('');
       setReceivedAmount('0');
       setExpectedDate(new Date().toISOString().slice(0, 10));
+      setReceiptDate('');
       setIsReceipt(false);
       setRemarks('');
       setAssignedTo(currentUserId || '');
@@ -71,6 +74,7 @@ export default function CustomerRecordModal({
     setReceivedAmount(val);
     const parsedRec = Number(val) || 0;
     const parsedExp = Number(expectedAmount) || 0;
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     if (parsedRec > parsedExp) {
       setValidationError(`Received Amount (${formatCurrency(parsedRec)}) cannot exceed Expected Amount (${formatCurrency(parsedExp)}).`);
@@ -78,13 +82,25 @@ export default function CustomerRecordModal({
       setValidationError(null);
     }
 
-    // Auto-Completion Automation:
-    // When received_amount equals 100% of expected_amount:
-    // 1. Automatically set 'Remarks & Status Notes' to "Received successfully"
-    // 2. Automatically toggle 'Receipt Received (Funds Confirmed)' to true
-    if (parsedExp > 0 && parsedRec === parsedExp) {
-      setIsReceipt(true);
-      setRemarks('Received successfully');
+    // Auto-Date & Auto-Completion Automation:
+    // 1. When received_amount > 0: auto-set receipt_date to today's date if not already filled.
+    // 2. If received_amount == expected_amount and receipt_date is empty, set receipt_date = expected_date.
+    if (parsedRec > 0) {
+      if (parsedExp > 0 && parsedRec === parsedExp) {
+        setIsReceipt(true);
+        setRemarks('Received successfully');
+        if (!receiptDate) {
+          setReceiptDate(expectedDate || todayStr);
+        }
+      } else {
+        setIsReceipt(false);
+        if (!receiptDate) {
+          setReceiptDate(todayStr);
+        }
+      }
+    } else {
+      setIsReceipt(false);
+      setReceiptDate('');
     }
   };
 
@@ -93,6 +109,7 @@ export default function CustomerRecordModal({
     setExpectedAmount(val);
     const parsedExp = Number(val) || 0;
     const parsedRec = Number(receivedAmount) || 0;
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     if (parsedRec > parsedExp) {
       setValidationError(`Received Amount (${formatCurrency(parsedRec)}) cannot exceed Expected Amount (${formatCurrency(parsedExp)}).`);
@@ -103,6 +120,9 @@ export default function CustomerRecordModal({
     if (parsedExp > 0 && parsedRec === parsedExp) {
       setIsReceipt(true);
       setRemarks('Received successfully');
+      if (!receiptDate) {
+        setReceiptDate(expectedDate || todayStr);
+      }
     }
   };
 
@@ -112,9 +132,13 @@ export default function CustomerRecordModal({
       setValidationError('Please enter a valid Expected Amount first.');
       return;
     }
+    const todayStr = new Date().toISOString().slice(0, 10);
     setReceivedAmount(String(numExpected));
     setIsReceipt(true);
     setRemarks('Received successfully');
+    if (!receiptDate) {
+      setReceiptDate(expectedDate || todayStr);
+    }
     setValidationError(null);
   };
 
@@ -143,14 +167,28 @@ export default function CustomerRecordModal({
       return;
     }
 
-    // Auto-completion safeguard
+    const todayStr = new Date().toISOString().slice(0, 10);
+    let finalReceiptDate = receiptDate || null;
     let finalRemarks = remarks;
     let finalReceipt = isReceipt;
-    if (numReceived === numExpected && numExpected > 0) {
-      finalReceipt = true;
-      if (!finalRemarks || finalRemarks.trim() === '') {
-        finalRemarks = 'Received successfully';
+
+    if (numReceived > 0) {
+      if (!finalReceiptDate) {
+        if (numReceived === numExpected && expectedDate) {
+          finalReceiptDate = expectedDate;
+        } else {
+          finalReceiptDate = todayStr;
+        }
       }
+      if (numReceived === numExpected && numExpected > 0) {
+        finalReceipt = true;
+        if (!finalRemarks || finalRemarks.trim() === '') {
+          finalRemarks = 'Received successfully';
+        }
+      }
+    } else {
+      finalReceiptDate = null;
+      finalReceipt = false;
     }
 
     onSave({
@@ -159,6 +197,7 @@ export default function CustomerRecordModal({
       expected_amount: numExpected,
       received_amount: numReceived,
       expected_date: expectedDate,
+      receipt_date: finalReceiptDate,
       is_receipt: finalReceipt,
       remarks: finalRemarks,
       assigned_to: assignedTo || currentUserId,
@@ -222,8 +261,8 @@ export default function CustomerRecordModal({
             />
           </div>
 
-          {/* Category & Expected Date */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Category, Expected Date & Receipt Date */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">
                 Category Type <span className="text-rose-500">*</span>
@@ -245,13 +284,32 @@ export default function CustomerRecordModal({
 
             <div>
               <label className="block font-bold text-slate-900 dark:text-slate-100 mb-1">
-                Expected Payment Date <span className="text-rose-500">*</span>
+                Expected Date <span className="text-rose-500">*</span>
               </label>
               <input
                 type="date"
                 required
                 value={expectedDate}
                 onChange={(e) => setExpectedDate(e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-xl border text-xs sm:text-sm font-medium ${
+                  theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
+                }`}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-900 dark:text-slate-100">
+                  Receipt Date
+                </label>
+                {receiptDate && (
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Auto</span>
+                )}
+              </div>
+              <input
+                type="date"
+                value={receiptDate}
+                onChange={(e) => setReceiptDate(e.target.value)}
                 className={`w-full px-3 py-2.5 rounded-xl border text-xs sm:text-sm font-medium ${
                   theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-950'
                 }`}
@@ -355,7 +413,7 @@ export default function CustomerRecordModal({
               >
                 {teamProfiles.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {getDisplayName(p)} ({p.email}) {p.role === 'manager' ? '• Manager' : ''}
+                    {getDisplayName(p)} {p.role === 'manager' ? '(Manager)' : ''}
                   </option>
                 ))}
               </select>
